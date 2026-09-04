@@ -4,7 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-PipelineTag = Literal["pipeline-1", "pipeline-2"]
+PipelineTag = Literal["pipeline-1", "pipeline-2", "pipeline-3"]
+ProcessedPipelineTag = Literal["pipeline-1", "pipeline-2"]
 
 
 class TextGenerateRequest(BaseModel):

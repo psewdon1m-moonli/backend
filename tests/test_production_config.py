@@ -36,12 +36,19 @@ def _client(tmp_path) -> tuple[TestClient, ProductionSecretStore]:
     app.state.client_authenticator = components.authenticator
     app.state.pipeline_profiles = components.profiles
     app.state.production_secret_store = components.production_secret_store
+    app.state.production_pipeline_config_store = components.production_pipeline_config_store
     app.state.production_usage_store = components.production_usage_store
     app.state.system_monitor = components.system_monitor
     app.state.operator_auth_store = components.operator_auth_store
     app.state.audit_store = components.audit_store
     app.state.google_key_validator = _AcceptingValidator()
     app.state.server_settings_store = components.server_settings_store
+    app.state.artifact_store = components.artifact_store
+    app.state.run_repository = components.run_repository
+    app.state.metrics = components.metrics
+    app.state.generation_services = components.generation_services
+    app.state.pipeline3_service = components.pipeline3_service
+    app.state.routing_config_store = components.routing_config_store
     install_error_handlers(app)
     app.include_router(router)
     client = TestClient(app)
@@ -115,6 +122,68 @@ def test_production_config_contains_two_client_and_four_internal_requests(tmp_pa
     assert requests[2]["request"]["url"].endswith(":generateContent")
     assert requests[4]["request"]["body"] != requests[5]["request"]["body"]
     assert "GOOGLE_API_KEY_FROM_VOLUME" in response.text
+    pipelines = response.json()["production"]["pipelines"]
+    assert set(pipelines) == {"pipeline-1", "pipeline-2", "pipeline-3"}
+    assert pipelines["pipeline-3"]["google_image_model"] == "gemini-3-pro-image-preview"
+    assert pipelines["pipeline-3"]["output"] == {
+        "type": "jpeg-set",
+        "count": 3,
+        "width": 1024,
+        "height": 1024,
+        "files": ["image_1.jpg", "image_2.jpg", "image_3.jpg"],
+        "post_processing": False,
+    }
+
+
+def test_pipeline_3_integration_kit_contains_two_requests_and_two_scripts(tmp_path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        response = client.get(
+            "/internal/production/pipelines/pipeline-3/integration"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pipeline"] == "pipeline-3"
+    assert [item["id"] for item in payload["requests"]] == [
+        "normalize-audio",
+        "generate-images",
+    ]
+    assert [item["filename"] for item in payload["scripts"]] == [
+        "pipeline3_transcription.py",
+        "pipeline3_generation.py",
+    ]
+    assert "POST /v1/normalize HTTP/1.1" in payload["requests"][0]["content"]
+    assert "POST /v1/generate HTTP/1.1" in payload["requests"][1]["content"]
+    assert "<NORMALIZED_TEXT_ONLY>" in payload["requests"][0]["content"]
+    assert "image_1.jpg" in payload["requests"][1]["content"]
+    assert 'op("../answer")' in payload["scripts"][0]["content"]
+    assert 'target_op = op("answer")' in payload["scripts"][1]["content"]
+    assert "PASTE_MOONLI_ACCESS_KEY_HERE" in response.text
+    assert "AIza" not in response.text
+
+
+def test_pipeline_configuration_update_is_isolated_and_applied(tmp_path) -> None:
+    client, _ = _client(tmp_path)
+    before = client.app.state.production_pipeline_config_store.get()
+    pipeline_3 = dict(before["pipelines"]["pipeline-3"])
+    pipeline_3["google_image_model"] = "models/custom-pipeline-three-model"
+
+    with client:
+        response = client.put(
+            "/internal/production/pipelines/pipeline-3/config",
+            json=pipeline_3,
+        )
+        after = client.get("/internal/production/config")
+
+    assert response.status_code == after.status_code == 200
+    assert response.json()["config"]["google_image_model"] == "custom-pipeline-three-model"
+    pipelines = after.json()["production"]["pipelines"]
+    assert pipelines["pipeline-1"] == before["pipelines"]["pipeline-1"] | {
+        "google_key": pipelines["pipeline-1"]["google_key"],
+        "output": pipelines["pipeline-1"]["output"],
+    }
+    assert pipelines["pipeline-3"]["google_image_model"] == "custom-pipeline-three-model"
 
 
 def test_production_config_requires_moonli_authentication(tmp_path) -> None:

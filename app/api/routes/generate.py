@@ -73,9 +73,11 @@ async def _parse_input(
         if form.get("type") != "audio":
             raise MoonliError("INVALID_INPUT", "Multipart type must be 'audio'.", 422)
         pipeline = form.get("pipeline")
-        if pipeline not in {"pipeline-1", "pipeline-2"}:
+        if pipeline not in {"pipeline-1", "pipeline-2", "pipeline-3"}:
             raise MoonliError(
-                "INVALID_INPUT", "Multipart pipeline must be 'pipeline-1' or 'pipeline-2'.", 422
+                "INVALID_INPUT",
+                "Multipart pipeline must be pipeline-1, pipeline-2, or pipeline-3.",
+                422,
             )
         upload = form.get("audio")
         if not isinstance(upload, UploadFile):
@@ -114,22 +116,18 @@ async def _parse_input(
     )
 
 
-@router.post("/v1/generate")
-async def generate(
+def _authenticate_device(
     request: Request,
-    authorization: str | None = Header(default=None),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-    x_moonli_device_id: str | None = Header(default=None, alias="X-Moonli-Device-Id"),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-) -> FileResponse:
-    if not idempotency_key or not IDEMPOTENCY_KEY.fullmatch(idempotency_key):
-        raise MoonliError(
-            "INVALID_INPUT",
-            "Idempotency-Key is required and must contain 8-128 safe characters.",
-            422,
-        )
-    authenticated = request.app.state.client_authenticator.authenticate(authorization, x_api_key)
-    device, registered = request.app.state.device_registry.record_request(x_moonli_device_id)
+    authorization: str | None,
+    x_api_key: str | None,
+    device_id: str | None,
+    *,
+    target_path: str,
+):
+    authenticated = request.app.state.client_authenticator.authenticate(
+        authorization, x_api_key
+    )
+    device, registered = request.app.state.device_registry.record_request(device_id)
     audit_store = getattr(request.app.state, "audit_store", None)
     if registered and audit_store is not None:
         audit_store.append(
@@ -153,45 +151,124 @@ async def generate(
                 actor_type="device",
                 actor_id=device.device_id,
                 target_type="route",
-                target_id="/v1/generate",
+                target_id=target_path,
                 request_id=getattr(request.state, "request_id", None),
                 context={"connection_type": device.connection_type},
             )
         raise MoonliError("DEVICE_BLOCKED", "This device is blocked.", 403)
+    return authenticated, device
+
+
+def _ensure_pipeline_credential(
+    request: Request,
+    pipeline: str,
+    *,
+    provider_fields: tuple[str, ...] = (
+        "image_provider",
+        "transcription_provider",
+        "normalization_provider",
+    ),
+) -> None:
     settings: Settings = request.app.state.moonli_settings
-    google_is_required = "google" in {
-        settings.image_provider,
-        settings.transcription_provider,
-        settings.normalization_provider,
-    }
-    stored_google_key = request.app.state.production_secret_store.get_google_api_key()
-    if google_is_required and not (stored_google_key or settings.google_api_key):
+    config_store = getattr(request.app.state, "production_pipeline_config_store", None)
+    if config_store is None:
+        google_is_required = "google" in {
+            settings.image_provider,
+            settings.transcription_provider,
+            settings.normalization_provider,
+        }
+        stored_key = request.app.state.production_secret_store.get_google_api_key()
+    else:
+        configuration = config_store.get_pipeline(pipeline)
+        google_is_required = any(
+            configuration[field] == "google" for field in provider_fields
+        )
+        stored_key = request.app.state.production_secret_store.get_google_api_key(
+            pipeline
+        )
+    if google_is_required and not (stored_key or settings.google_api_key):
         raise MoonliError(
             "GOOGLE_KEY_NOT_CONFIGURED",
-            "The production Google API key has not been configured.",
+            f"The production Google API key for {pipeline} has not been configured.",
             503,
         )
+
+
+@router.post("/v1/generate")
+async def generate(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    x_moonli_device_id: str | None = Header(default=None, alias="X-Moonli-Device-Id"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> FileResponse:
+    if not idempotency_key or not IDEMPOTENCY_KEY.fullmatch(idempotency_key):
+        raise MoonliError(
+            "INVALID_INPUT",
+            "Idempotency-Key is required and must contain 8-128 safe characters.",
+            422,
+        )
+    authenticated, device = _authenticate_device(
+        request,
+        authorization,
+        x_api_key,
+        x_moonli_device_id,
+        target_path="/v1/generate",
+    )
+    audit_store = getattr(request.app.state, "audit_store", None)
+    settings: Settings = request.app.state.moonli_settings
     async with request.app.state.rate_limiter.limit(device.device_id):
         generation_input, fingerprint, pipeline = await _parse_input(request, settings)
+        _ensure_pipeline_credential(
+            request,
+            pipeline,
+            provider_fields=("image_provider",)
+            if pipeline == "pipeline-3"
+            else (
+                "image_provider",
+                "transcription_provider",
+                "normalization_provider",
+            ),
+        )
         request.app.state.production_usage_store.record_request(
             pipeline=pipeline, input_type=generation_input.type
         )
-        profile = request.app.state.pipeline_profiles[pipeline]
-        request_hash = hashlib.sha256(
-            device.device_id.encode("ascii")
-            + b"\0"
-            + profile.id.encode("ascii")
-            + b"\0"
-            + fingerprint
-        ).hexdigest()
-        result = await request.app.state.generation_service.generate(
-            generation_input=generation_input,
-            profile=profile,
-            idempotency_key=f"{device.device_id}:{idempotency_key}",
-            request_hash=request_hash,
-        )
-    filename = "moonli.png" if result.media_type == "image/png" else "moonli-layers.zip"
-    disposition = "inline" if result.media_type == "image/png" else "attachment"
+        if pipeline == "pipeline-3":
+            if generation_input.type != "text" or generation_input.text is None:
+                raise MoonliError(
+                    "INVALID_INPUT",
+                    "pipeline-3 generation requires normalized text input.",
+                    422,
+                )
+            request_hash = hashlib.sha256(
+                device.device_id.encode("ascii")
+                + b"\0pipeline-3\0generate\0"
+                + fingerprint
+            ).hexdigest()
+            result = await request.app.state.pipeline3_service.generate(
+                normalized_text=generation_input.text.text.strip(),
+                idempotency_key=(
+                    f"{device.device_id}:pipeline-3:generate:{idempotency_key}"
+                ),
+                request_hash=request_hash,
+            )
+        else:
+            profile = request.app.state.pipeline_profiles[pipeline]
+            request_hash = hashlib.sha256(
+                device.device_id.encode("ascii")
+                + b"\0"
+                + profile.id.encode("ascii")
+                + b"\0"
+                + fingerprint
+            ).hexdigest()
+            services = getattr(request.app.state, "generation_services", None)
+            service = services[pipeline] if services else request.app.state.generation_service
+            result = await service.generate(
+                generation_input=generation_input,
+                profile=profile,
+                idempotency_key=f"{device.device_id}:{idempotency_key}",
+                request_hash=request_hash,
+            )
     if audit_store is not None:
         audit_store.append(
             action="production.generate",
@@ -211,6 +288,16 @@ async def generate(
                 "client_credential_id": authenticated.client_id,
             },
         )
+    if pipeline == "pipeline-3":
+        return FileResponse(
+            result.path,
+            media_type="application/zip",
+            filename="moonli-images.zip",
+            content_disposition_type="attachment",
+            headers={"Cache-Control": "no-store"},
+        )
+    filename = "moonli.png" if result.media_type == "image/png" else "moonli-layers.zip"
+    disposition = "inline" if result.media_type == "image/png" else "attachment"
     return FileResponse(
         result.path,
         media_type=result.media_type,
@@ -223,6 +310,78 @@ async def generate(
             "X-Moonli-Device-Id": device.device_id,
             "Cache-Control": "no-store",
         },
+    )
+
+
+@router.post("/v1/normalize")
+async def normalize_pipeline_3(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    x_moonli_device_id: str | None = Header(default=None, alias="X-Moonli-Device-Id"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> PlainTextResponse:
+    if not idempotency_key or not IDEMPOTENCY_KEY.fullmatch(idempotency_key):
+        raise MoonliError(
+            "INVALID_INPUT",
+            "Idempotency-Key is required and must contain 8-128 safe characters.",
+            422,
+        )
+    authenticated, device = _authenticate_device(
+        request,
+        authorization,
+        x_api_key,
+        x_moonli_device_id,
+        target_path="/v1/normalize",
+    )
+    settings: Settings = request.app.state.moonli_settings
+    async with request.app.state.rate_limiter.limit(device.device_id):
+        generation_input, fingerprint, pipeline = await _parse_input(request, settings)
+        if pipeline != "pipeline-3" or generation_input.type != "audio":
+            raise MoonliError(
+                "INVALID_INPUT",
+                "/v1/normalize requires a pipeline-3 audio request.",
+                422,
+            )
+        _ensure_pipeline_credential(
+            request,
+            pipeline,
+            provider_fields=("transcription_provider", "normalization_provider"),
+        )
+        request.app.state.production_usage_store.record_request(
+            pipeline=pipeline, input_type="audio-normalization"
+        )
+        request_hash = hashlib.sha256(
+            device.device_id.encode("ascii")
+            + b"\0pipeline-3\0normalize\0"
+            + fingerprint
+        ).hexdigest()
+        result = await request.app.state.pipeline3_service.normalize(
+            generation_input=generation_input,
+            idempotency_key=f"{device.device_id}:pipeline-3:normalize:{idempotency_key}",
+            request_hash=request_hash,
+        )
+    audit_store = getattr(request.app.state, "audit_store", None)
+    if audit_store is not None:
+        audit_store.append(
+            action="production.normalize",
+            outcome="success",
+            summary="Production transcription and normalization completed.",
+            actor_type="device",
+            actor_id=device.device_id,
+            target_type="generation_run",
+            target_id=result.run_id,
+            request_id=getattr(request.state, "request_id", None),
+            context={
+                "pipeline": pipeline,
+                "connection_type": device.connection_type,
+                "client_credential_id": authenticated.client_id,
+            },
+        )
+    return PlainTextResponse(
+        result.path.read_text(encoding="utf-8"),
+        media_type="text/plain",
+        headers={"Cache-Control": "no-store"},
     )
 
 

@@ -1,4 +1,29 @@
 services:
+  vless-proxy:
+    container_name: moonli-vless-proxy
+    image: ${MOONLI_XRAY_IMAGE:-moonli-vless-proxy:26.7.11}
+    build:
+      context: .
+      dockerfile: deploy/xray/Dockerfile
+    expose:
+      - "18080"
+    volumes:
+      - moonli_secrets:/run/moonli-secrets:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    mem_limit: ${MOONLI_XRAY_MEMORY_LIMIT:-128m}
+    cpus: ${MOONLI_XRAY_CPU_LIMIT:-0.25}
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    restart: unless-stopped
+
   api:
     container_name: moonli-api
     image: ${MOONLI_IMAGE:-moonli-backend:local}
@@ -48,6 +73,9 @@ services:
       MOONLI_UPDATER_CATALOG_TOKEN: ${MOONLI_UPDATER_CATALOG_TOKEN:-}
       MOONLI_UPDATER_CONTROL_TOKEN: ${MOONLI_UPDATER_CONTROL_TOKEN:-}
       MOONLI_UPDATER_SOCKET_PATH: /run/exocortex/updater.sock
+    depends_on:
+      vless-proxy:
+        condition: service_started
     expose:
       - "8000"
     ports:

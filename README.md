@@ -1,17 +1,19 @@
 # Moonli backend
 
 Moonli owns the complete tagged generation state machine. A client makes one
-authenticated `POST /v1/generate` request with `pipeline-1` or `pipeline-2` and
+authenticated request with `pipeline-1`, `pipeline-2`, or `pipeline-3` and
 receives the final artifact in the same response.
 
 - `pipeline-1` returns `image/png`.
 - `pipeline-2` returns `application/vnd.moonli.layers+zip`.
+- `pipeline-3` uses two client operations: audio normalization returns plain text,
+  then text generation returns a ZIP containing exactly three 1024×1024 JPEG files.
 - JSON text and multipart audio use the same endpoint.
 - Every resolved text passes through prompt normalization before Prompt Builder.
 - Credentials authenticate; only the request tag selects the pipeline.
 - Every production call carries a persistent client-generated device identity:
   `td-########` for TouchDesigner or `aa-########` for Android. The prefix records
-  the client type and does not restrict either pipeline.
+  the client type and does not restrict any pipeline.
 - `Idempotency-Key` prevents duplicate paid generations.
 - Provider images are converted to PNG, quantized to the versioned palette, cleaned,
   validated with zero palette tolerance, vectorized/segmented where applicable, and
@@ -27,7 +29,8 @@ are not modified by this repository; required integration changes are documented
 ## Local development
 
 Development uses explicit mock providers that produce real PNG artifacts and exercise
-the complete processing chain. Mock providers are rejected in production.
+the complete processing chain. Production client pipelines reject mock providers;
+authenticated Test Calls may use them without changing production configuration.
 
 ```powershell
 Copy-Item .env.example .env.local
@@ -84,11 +87,19 @@ See:
 ## Google activation
 
 Set the three Google providers and exact enabled model names for first production
-startup. Then sign in to Moonli and save the Google API key on the **Production** page.
+startup. Then sign in to Moonli and save the separate Google API key and model
+configuration for each pipeline on the **Production** page.
 The backend validates the key against Google and writes it atomically to the dedicated
 `moonli_secrets` volume. It is never persisted in `.env`, browser storage, logs, API
 responses, logical backups or release artifacts. Generation returns
 `GOOGLE_KEY_NOT_CONFIGURED` until the key exists.
+
+If Google rejects the server region, use **Configuration → Routing** to paste a
+VLESS Reality/TCP connection and enable proxy routing. The connection is persisted
+only in `moonli_secrets` and is never returned to the browser. Google transcription,
+normalization, image generation and key validation then use the internal Xray HTTP
+proxy; disabling the switch restores direct routing immediately. The proxy has no
+host port and is not a general public gateway.
 
 ## Pre-push and releases
 

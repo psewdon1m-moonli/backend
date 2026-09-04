@@ -18,7 +18,7 @@ the generation pipeline starts. The identifier is not a secret and does not repl
 the Bearer credential.
 
 The credential only authenticates the caller. Every request must select exactly one
-server-owned profile with the canonical `pipeline-1` or `pipeline-2` tag. A missing or
+server-owned profile with the canonical `pipeline-1`, `pipeline-2`, or `pipeline-3` tag. A missing or
 unknown tag (including `pipelien-2`) is rejected. `table_id`, palette, provider, and
 processing-stage fields are also rejected.
 
@@ -74,7 +74,65 @@ Content-Type: application/vnd.moonli.layers+zip
 Content-Disposition: attachment; filename="moonli-layers.zip"
 ```
 
-Successful responses include:
+## `pipeline-3`: TouchDesigner two-request contract
+
+The same persistent `td-########` device identifier is sent on both requests. Each
+new user operation creates a fresh UUID `Idempotency-Key`; automatic network retries
+reuse that operation's UUID.
+
+First, audio is transcribed and normalized:
+
+```http
+POST /v1/normalize
+Authorization: Bearer <device credential>
+X-Moonli-Device-Id: td-02941846
+Idempotency-Key: <new UUID>
+Content-Type: multipart/form-data
+
+type=audio
+pipeline=pipeline-3
+audio=<voice.wav>
+```
+
+The successful body is only the normalized phrase:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=utf-8
+
+cute penguin icon
+```
+
+Second, TouchDesigner sends that phrase to the normal generation endpoint:
+
+```http
+POST /v1/generate
+Authorization: Bearer <device credential>
+X-Moonli-Device-Id: td-02941846
+Idempotency-Key: <another new UUID>
+Content-Type: application/json
+
+{"type":"text","pipeline":"pipeline-3","text":"cute penguin icon"}
+```
+
+The server performs three parallel image-provider calls. It uses
+`gemini-3-pro-image-preview`, `1:1`, `1K`, and the production TouchDesigner system
+instruction by default. It does not run prompt building, palette quantization,
+palette validation, vectorization, or segmentation. The response is a ZIP whose
+complete file list is exactly:
+
+```text
+image_1.jpg
+image_2.jpg
+image_3.jpg
+```
+
+All three files are distinct RGB JPEG images at exactly 1024×1024. There is no
+manifest or other file in the response. The replacement TouchDesigner script keeps
+the ZIP in memory, atomically writes only the three JPEGs into `generated/`, and maps
+them to `moviefilein1`, `moviefilein2`, and `moviefilein3` respectively.
+
+Successful `pipeline-1` and `pipeline-2` responses include:
 
 ```text
 X-Moonli-Run-Id
@@ -82,6 +140,11 @@ X-Moonli-Result-SHA256
 X-Moonli-Device-Id
 X-Idempotent-Replay: true|false
 ```
+
+Pipeline-3 response bodies remain deliberately minimal: normalized text for the first
+operation and the three-member ZIP for the second. Standard HTTP headers such as
+`Content-Type`, `Content-Length`, `Content-Disposition`, `Cache-Control`, and
+`X-Request-ID` may still be present.
 
 The same key and same authenticated request return the stored artifact. Reusing the
 key with a different pipeline tag or payload returns `IDEMPOTENCY_CONFLICT`. A concurrent
@@ -150,3 +213,19 @@ Codes include `INVALID_INPUT`, `INVALID_DEVICE_ID`, `DEVICE_BLOCKED`,
 `PALETTE_QUANTIZATION_FAILED`, `PALETTE_VALIDATION_FAILED`,
 `OUTPUT_VALIDATION_FAILED`, `RESULT_EXPIRED`, and `INTERNAL_ERROR`.
 `RATE_LIMITED` is returned with HTTP 429 and `Retry-After`.
+
+## Operator routing API
+
+The browser console uses the session-authenticated, CSRF-protected
+`GET|PUT /internal/routing` endpoint. This is not a client-generation endpoint.
+`GET` returns only:
+
+```json
+{"enabled": false, "configured": true, "mode": "direct"}
+```
+
+`PUT` accepts `enabled` and an optional `vless_uri`. Omitting or sending an empty URI
+retains the saved private connection. The server never returns the URI. When enabled,
+all Google adapters resolve the internal proxy route at request time, so production
+pipelines and authenticated Test Calls follow the new route without rebuilding their
+provider objects.

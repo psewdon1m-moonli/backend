@@ -34,6 +34,7 @@ class _Client:
 
     def __init__(self, **kwargs) -> None:
         self.captured["timeout"] = kwargs.get("timeout")
+        self.captured["proxy"] = kwargs.get("proxy")
 
     async def __aenter__(self):
         return self
@@ -114,6 +115,27 @@ def test_google_adapter_resolves_rotated_key_at_request_time(monkeypatch) -> Non
     asyncio.run(adapter.transcribe(AudioInput(b"audio", "audio/wav", "input.wav")))
 
     assert _Client.captured["headers"]["x-goog-api-key"] == "rotated-production-key"
+
+
+def test_google_adapter_resolves_proxy_route_at_request_time(monkeypatch) -> None:
+    _Client.response_payload = {
+        "candidates": [{"content": {"parts": [{"text": "a red tree"}]}}]
+    }
+    _Client.captured = {}
+    monkeypatch.setattr(transcription_google.httpx, "AsyncClient", _Client)
+    current = {"proxy": None}
+    adapter = transcription_google.GoogleTranscriber(
+        "https://google.invalid/v1beta",
+        "secret",
+        "transcription-model",
+        12,
+        proxy_url=lambda: current["proxy"],
+    )
+    current["proxy"] = "http://vless-proxy:18080"
+
+    asyncio.run(adapter.transcribe(AudioInput(b"audio", "audio/wav", "input.wav")))
+
+    assert _Client.captured["proxy"] == "http://vless-proxy:18080"
 
 
 def test_google_prompt_normalizer_extracts_short_english_visual_intent(monkeypatch) -> None:

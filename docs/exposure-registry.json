@@ -12,7 +12,7 @@
     },
     {
       "id": "client-api",
-      "route": "POST /v1/generate",
+      "route": "POST /v1/generate and POST /v1/normalize",
       "mode": "public/non-indexable",
       "identity": "independent client API key plus persistent td-/aa- device identifier",
       "owner": "moonli-api"
@@ -42,8 +42,15 @@
       "id": "provider-google",
       "destination": "https://generativelanguage.googleapis.com",
       "mode": "private",
-      "identity": "Google API key stored in moonli_secrets volume",
+      "identity": "pipeline-specific Google API keys; direct or operator-selected private VLESS route",
       "owner": "moonli-api"
+    },
+    {
+      "id": "vless-proxy",
+      "listener": "compose-internal tcp/18080 only",
+      "mode": "concealed",
+      "identity": "VLESS connection stored in moonli_secrets; no host port",
+      "owner": "pinned Xray sidecar"
     },
     {
       "id": "release-github",

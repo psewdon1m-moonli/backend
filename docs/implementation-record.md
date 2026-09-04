@@ -8,6 +8,9 @@ Date: 2026-09-04. Backend repository policy:
 - Production Google API key remains a browser-entered secret. The backend validates
   it before atomically saving it in `moonli_secrets`; it never enters `.env`, browser
   persistence, logs, API responses, logical backup or release files.
+- Optional Google API proxy routing is browser-controlled from Configuration. Its
+  VLESS Reality/TCP/Vision connection and generated Xray config are stored only in
+  `moonli_secrets` with restricted permissions. API responses expose status only.
 - Public deployment uses Nginx and ordinary domain HTTPS. VPN and mTLS are not part of
   the selected topology.
 - The local updater is based on
@@ -43,14 +46,16 @@ Date: 2026-09-04. Backend repository policy:
 | --- | --- | --- | --- | --- |
 | Android/TouchDesigner → generation | independent client key + persistent device ID | deployment input + client local state | replace key; retain device ID | public/non-indexable HTTPS |
 | Browser → operator routes | Access Key → HttpOnly session + CSRF | one-time seed, then scrypt verifier | Settings rotation revokes sessions | private content via HTTPS login |
-| Backend → Google | Google API key | browser → dedicated volume | browser delete/replace | fixed outbound Google HTTPS |
+| Backend → Google | Google API key | browser → dedicated volume | browser delete/replace | direct Google HTTPS or internal Xray route |
+| Backend → Xray | Compose-private HTTP proxy | no user credential on the internal hop | Configuration switch | no host port; VLESS secret remains in the shared secrets volume |
 | Backend → updater | Unix group + per-service token | root-owned `.env` | root deployment rotation | concealed Unix socket |
 | Updater → catalog/restore | separate machine tokens | root-owned `.env` | root deployment rotation | loopback-only API |
 | Updater → GitHub/GHCR | fixed repository/release contract | public metadata | repository administration | outbound HTTPS |
 
 The route/listener source of truth is `docs/exposure-registry.json`. Nginx uses an
-explicit allow-list and final real `404`; framework docs, metrics, raw data, legacy
-APIs, updater catalog and updater restore are not publicly routed.
+explicit allow-list and final real `404`; authenticated operator Test Calls are
+routed with session and CSRF enforcement, while framework docs, metrics, raw data,
+legacy APIs, updater catalog and updater restore are not publicly routed.
 
 ## Persistence classification
 
@@ -58,8 +63,8 @@ APIs, updater catalog and updater restore are not publicly routed.
   block state, non-secret settings,
   operator verifier, retained audit records and referenced completed artifacts.
 - Derived/excluded: staging/cache files and reproducible images.
-- Forbidden: Google/client/updater keys, cookies, sessions, `.env`, plaintext
-  passwords and temporary update files.
+- Forbidden: Google/client/updater keys, VLESS routing state, cookies, sessions,
+  `.env`, plaintext passwords and temporary update files.
 - Restore mode: replace after complete validation; pre-restore snapshot is reapplied
   on mutation failure and active sessions are revoked.
 

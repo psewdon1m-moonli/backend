@@ -94,6 +94,13 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    location /internal/production/pipelines/ {
+        proxy_pass http://moonli_api;
+        proxy_set_header Host ${MOONLI_DOMAIN};
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location = /internal/auth/session {
         limit_req zone=moonli_login burst=3 nodelay;
         proxy_pass http://moonli_api;
@@ -111,6 +118,13 @@ server {
     }
 
     location = /internal/settings {
+        proxy_pass http://moonli_api;
+        proxy_set_header Host ${MOONLI_DOMAIN};
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /internal/routing {
         proxy_pass http://moonli_api;
         proxy_set_header Host ${MOONLI_DOMAIN};
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -158,6 +172,20 @@ server {
     }
 
     location = /v1/generate {
+        limit_req zone=moonli_generate burst=10 nodelay;
+        proxy_pass http://moonli_api;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host ${MOONLI_DOMAIN};
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_buffering off;
+    }
+
+    location = /v1/normalize {
         limit_req zone=moonli_generate burst=10 nodelay;
         proxy_pass http://moonli_api;
         proxy_http_version 1.1;

@@ -18,6 +18,7 @@ from app.providers.credentials import (
     validate_google_api_key_source,
 )
 from app.providers.errors import ProviderError
+from app.providers.proxy import ProxyUrlSource, resolve_proxy_url
 
 MODEL_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 FLAT_RASTER_INSTRUCTION = """
@@ -89,6 +90,7 @@ class GoogleImageGenerator:
         aspect_ratio: str,
         image_size: str,
         usage_recorder: Callable[[str, dict[str, object]], None] | None = None,
+        proxy_url: ProxyUrlSource = None,
     ) -> None:
         validate_google_api_key_source(api_key)
         if not model:
@@ -102,6 +104,7 @@ class GoogleImageGenerator:
         self._aspect_ratio = aspect_ratio
         self._image_size = image_size
         self._usage_recorder = usage_recorder
+        self._proxy_url = proxy_url
 
     async def generate(
         self,
@@ -115,7 +118,11 @@ class GoogleImageGenerator:
             prompt.text, self._aspect_ratio, self._image_size, attempt
         )
         try:
-            async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout_seconds,
+                proxy=resolve_proxy_url(self._proxy_url),
+                trust_env=False,
+            ) as client:
                 response = await client.post(
                     endpoint,
                     json=payload,

@@ -75,6 +75,7 @@ class ProductionUsageStore:
                 CREATE TABLE IF NOT EXISTS production_token_usage (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     created_at TEXT NOT NULL,
+                    pipeline TEXT NOT NULL DEFAULT 'shared',
                     stage TEXT NOT NULL,
                     prompt_tokens INTEGER NOT NULL,
                     output_tokens INTEGER NOT NULL,
@@ -85,6 +86,17 @@ class ProductionUsageStore:
                     ON production_token_usage(created_at);
                 """
             )
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(production_token_usage)"
+                ).fetchall()
+            }
+            if "pipeline" not in columns:
+                connection.execute(
+                    "ALTER TABLE production_token_usage "
+                    "ADD COLUMN pipeline TEXT NOT NULL DEFAULT 'shared'"
+                )
 
     def record_request(self, pipeline: str, input_type: str) -> None:
         with self._connect() as connection:
@@ -97,7 +109,13 @@ class ProductionUsageStore:
             )
             self._trim(connection, "production_api_requests")
 
-    def record_google_response(self, stage: str, response_body: dict[str, object]) -> None:
+    def record_google_response(
+        self,
+        stage: str,
+        response_body: dict[str, object],
+        *,
+        pipeline: str = "shared",
+    ) -> None:
         usage = google_token_usage(response_body)
         if usage["total_tokens"] <= 0:
             return
@@ -105,12 +123,13 @@ class ProductionUsageStore:
             connection.execute(
                 """
                 INSERT INTO production_token_usage (
-                    created_at, stage, prompt_tokens, output_tokens,
+                    created_at, pipeline, stage, prompt_tokens, output_tokens,
                     thought_tokens, total_tokens
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     datetime.now(UTC).isoformat(),
+                    pipeline,
                     stage,
                     usage["prompt_tokens"],
                     usage["output_tokens"],

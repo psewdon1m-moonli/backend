@@ -22,6 +22,7 @@ from app.api.routes.lab import router as lab_router
 from app.api.routes.operations import router as operations_router
 from app.api.routes.operator import router as operator_router
 from app.api.routes.production import router as production_router
+from app.api.routes.routing import router as routing_router
 from app.api.routes.settings import router as settings_router
 from app.api.routes.updater import router as updater_router
 from app.composition import build_components
@@ -76,8 +77,13 @@ async def lifespan(application: FastAPI):
     application.state.pipeline_profiles = components.profiles
     application.state.rate_limiter = components.rate_limiter
     application.state.generation_service = components.generation_service
+    application.state.generation_services = components.generation_services
+    application.state.pipeline3_service = components.pipeline3_service
     application.state.artifact_store = components.artifact_store
     application.state.production_secret_store = components.production_secret_store
+    application.state.production_pipeline_config_store = (
+        components.production_pipeline_config_store
+    )
     application.state.run_repository = components.run_repository
     application.state.metrics = components.metrics
     application.state.production_usage_store = components.production_usage_store
@@ -90,6 +96,7 @@ async def lifespan(application: FastAPI):
     application.state.updater_client = components.updater_client
     application.state.server_settings_store = components.server_settings_store
     application.state.device_registry = components.device_registry
+    application.state.routing_config_store = components.routing_config_store
     application.state.state_operation_lock = asyncio.Lock()
     components.run_repository.fail_stale_in_progress(components.settings.in_progress_stale_minutes)
     components.run_repository.apply_retention(
@@ -151,10 +158,12 @@ async def disable_web_ui_cache(request, call_next):
     request.state.request_id = request.headers.get("X-Request-ID") or f"req_{uuid.uuid4().hex}"
     serialized_paths = {
         "/v1/generate",
+        "/v1/normalize",
         "/internal/settings",
         "/internal/auth/rotate-access-key",
         "/internal/updates/install",
         "/internal/updater/restore",
+        "/internal/routing",
     }
     requires_lock = (
         request.method in {"POST", "PUT", "DELETE"}
@@ -162,6 +171,7 @@ async def disable_web_ui_cache(request, call_next):
             request.url.path in serialized_paths
             or request.url.path.startswith("/internal/backups")
             or request.url.path.startswith("/internal/devices/")
+            or request.url.path.startswith("/internal/production/pipelines/")
         )
     )
     lock = getattr(request.app.state, "state_operation_lock", None)
@@ -198,6 +208,7 @@ if MOONLI_SETTINGS.cors_origins:
             "Idempotency-Key",
             "X-API-Key",
             "X-CSRF-Token",
+            "X-Moonli-Device-Id",
         ],
     )
 install_error_handlers(app)
@@ -210,6 +221,7 @@ app.include_router(backups_router)
 app.include_router(devices_router)
 app.include_router(updater_router)
 app.include_router(settings_router)
+app.include_router(routing_router)
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")

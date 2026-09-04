@@ -14,6 +14,7 @@ from app.providers.credentials import (
     validate_google_api_key_source,
 )
 from app.providers.errors import ProviderError
+from app.providers.proxy import ProxyUrlSource, resolve_proxy_url
 
 MODEL_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 TRANSCRIPTION_INSTRUCTION = (
@@ -23,12 +24,16 @@ TRANSCRIPTION_INSTRUCTION = (
 logger = logging.getLogger("moonli.google.transcription")
 
 
-def build_transcription_request(mime_type: str, encoded_audio: str) -> dict[str, object]:
+def build_transcription_request(
+    mime_type: str,
+    encoded_audio: str,
+    instruction: str = TRANSCRIPTION_INSTRUCTION,
+) -> dict[str, object]:
     return {
         "contents": [
             {
                 "parts": [
-                    {"text": TRANSCRIPTION_INSTRUCTION},
+                    {"text": instruction},
                     {"inlineData": {"mimeType": mime_type, "data": encoded_audio}},
                 ]
             }
@@ -46,6 +51,8 @@ class GoogleTranscriber:
         model: str,
         timeout_seconds: float,
         usage_recorder: Callable[[str, dict[str, object]], None] | None = None,
+        instruction: str = TRANSCRIPTION_INSTRUCTION,
+        proxy_url: ProxyUrlSource = None,
     ) -> None:
         validate_google_api_key_source(api_key)
         if not model:
@@ -57,14 +64,22 @@ class GoogleTranscriber:
         self._model = model
         self._timeout_seconds = timeout_seconds
         self._usage_recorder = usage_recorder
+        self._instruction = instruction
+        self._proxy_url = proxy_url
 
     async def transcribe(self, audio: AudioInput) -> str:
         endpoint = f"{self._base_url}/models/{self._model}:generateContent"
         payload = build_transcription_request(
-            audio.content_type, base64.b64encode(audio.content).decode("ascii")
+            audio.content_type,
+            base64.b64encode(audio.content).decode("ascii"),
+            self._instruction,
         )
         try:
-            async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout_seconds,
+                proxy=resolve_proxy_url(self._proxy_url),
+                trust_env=False,
+            ) as client:
                 response = await client.post(
                     endpoint,
                     json=payload,

@@ -81,12 +81,38 @@ jobs:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           docker run --detach --name moonli-release-smoke --publish 127.0.0.1:18001:8000 \
-            --env MOONLI_ENV=test --env MOONLI_ALLOWED_HOSTS=127.0.0.1 \
+            --env MOONLI_ENV=production --env MOONLI_ALLOWED_HOSTS=127.0.0.1 \
+            --env MOONLI_CLIENT_API_KEYS=release-smoke-client-key-01 \
             --env MOONLI_OPERATOR_ACCESS_KEY=release-smoke-operator-key-01 \
+            --env MOONLI_IMAGE_PROVIDER=google \
+            --env MOONLI_TRANSCRIPTION_PROVIDER=google \
+            --env MOONLI_NORMALIZATION_PROVIDER=google \
+            --env MOONLI_GOOGLE_IMAGE_MODEL=release-smoke-image-model \
+            --env MOONLI_GOOGLE_TRANSCRIPTION_MODEL=release-smoke-transcription-model \
+            --env MOONLI_GOOGLE_NORMALIZATION_MODEL=release-smoke-normalization-model \
             "ghcr.io/psewdon1m-moonli/backend@$DIGEST"
-          for attempt in $(seq 1 30); do curl --fail --silent --header 'Host: 127.0.0.1' http://127.0.0.1:18001/readyz && exit 0; sleep 2; done
-          docker logs --tail 100 moonli-release-smoke
-          exit 1
+          ready=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --header 'Host: 127.0.0.1' http://127.0.0.1:18001/readyz; then ready=true; break; fi
+            sleep 2
+          done
+          if [ "$ready" != true ]; then docker logs --tail 100 moonli-release-smoke; exit 1; fi
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --header 'Host: 127.0.0.1' http://127.0.0.1:18001/internal/test/config)" = "401"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --header 'Host: 127.0.0.1' http://127.0.0.1:18001/internal/routing)" = "401"
+          login="$(curl --fail --silent --show-error --cookie-jar /tmp/moonli-release.cookies \
+            --header 'Host: 127.0.0.1' --header 'Content-Type: application/json' \
+            --data '{"access_key":"release-smoke-operator-key-01"}' \
+            http://127.0.0.1:18001/internal/auth/session)"
+          csrf="$(printf '%s' "$login" | python -c 'import json,sys; print(json.load(sys.stdin)["csrf_token"])')"
+          curl --fail --silent --show-error --cookie /tmp/moonli-release.cookies \
+            --header 'Host: 127.0.0.1' --header "X-CSRF-Token: $csrf" \
+            --header 'Idempotency-Key: release-production-full-run-0001' \
+            --form type=text --form pipeline=pipeline-3 --form text='cute fox icon' \
+            --form image_provider=mock --form transcription_provider=mock \
+            --form normalization_provider=mock \
+            http://127.0.0.1:18001/internal/test/pipeline \
+            --output /tmp/moonli-release-test-run.zip
+          python -c "import json,zipfile; archive=zipfile.ZipFile('/tmp/moonli-release-test-run.zip'); manifest=json.loads(archive.read('manifest.json')); assert manifest['pipeline']=='pipeline-3' and manifest['input_type']=='text'"
       - name: Create checksummed release contract
         env:
           UPDATER_SOURCE_DIR: /tmp/moonli-updater

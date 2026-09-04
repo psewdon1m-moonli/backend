@@ -51,13 +51,15 @@ duplicates="$(sed 's#^\./##; /\/$/d' "$work/members.txt" | sort | uniq -d)"
 [ -z "$duplicates" ] || { echo "Duplicate bundle paths are forbidden." >&2; exit 1; }
 sed 's#^\./##; /\/$/d' "$work/members.txt" | while IFS= read -r member; do
   case "$member" in
-    docker-compose.yml|compose.production.yml|RELEASE-CONTENTS.txt|deploy/bootstrap.sh|deploy/install.sh|deploy/nginx/Dockerfile|deploy/nginx/default.conf.template|deploy/nginx/10-moonli-certificate.sh|updater/install.sh|updater/updater-linux-amd64|updater/systemd/updater.service) ;;
+    docker-compose.yml|compose.production.yml|RELEASE-CONTENTS.txt|deploy/bootstrap.sh|deploy/install.sh|deploy/nginx/Dockerfile|deploy/nginx/default.conf.template|deploy/nginx/10-moonli-certificate.sh|deploy/xray/Dockerfile|deploy/xray/direct.json|deploy/xray/supervise.sh|updater/install.sh|updater/updater-linux-amd64|updater/systemd/updater.service) ;;
     *) echo "Unexpected bundle member: $member" >&2; exit 1 ;;
   esac
 done
 install -d -o root -g root -m 0755 "$install_root"
 tar --extract --gzip --file "$work/moonli-compose.tar.gz" --directory "$install_root" --no-same-owner --no-same-permissions
 chmod 0755 "$install_root/deploy/install.sh"
+chmod 0755 "$install_root/deploy/xray/supervise.sh"
+chmod 0644 "$install_root/deploy/xray/Dockerfile" "$install_root/deploy/xray/direct.json"
 chmod 0755 "$install_root/updater/install.sh" "$install_root/updater/updater-linux-amd64"
 chmod 0644 "$install_root/docker-compose.yml" "$install_root/compose.production.yml" "$install_root/updater/systemd/updater.service"
 ln -sf "$install_root/deploy/install.sh" /usr/local/sbin/moonli-admin

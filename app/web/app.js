@@ -11,14 +11,7 @@ const VIEW_TITLES = {
   documentation: "documentation",
 };
 
-const PRODUCTION_REQUEST_FIELDS = {
-  "client-text": "productionRequestClientText",
-  "client-audio": "productionRequestClientAudio",
-  "google-transcription": "productionRequestTranscription",
-  "google-normalization": "productionRequestNormalization",
-  "google-image-pipeline-1": "productionRequestImageP1",
-  "google-image-pipeline-2": "productionRequestImageP2",
-};
+const PRODUCTION_PIPELINE_IDS = ["pipeline-1", "pipeline-2", "pipeline-3"];
 
 const state = {
   activeView: "overview",
@@ -26,6 +19,9 @@ const state = {
   googleKey: "",
   config: null,
   production: null,
+  routing: null,
+  pipeline3Integration: null,
+  pipeline3IntegrationPromise: null,
   devices: [],
   overviewStats: null,
   settings: null,
@@ -389,7 +385,7 @@ function clearSecrets() {
   state.googleKey = "";
   $("accessKey").value = "";
   $("googleKeyInput").value = "";
-  $("productionGoogleKey").value = "";
+  if ($("productionGoogleKey")) $("productionGoogleKey").value = "";
   updateGoogleKeyStatus();
 }
 
@@ -494,28 +490,31 @@ function googleOptions() {
   };
 }
 
-function appendGoogleOptions(form) {
-  const options = googleOptions();
+function appendGoogleOptions(form, options = googleOptions()) {
   for (const [key, value] of Object.entries(options)) form.append(key, String(value));
 }
 
-function requireGoogle(provider, kind) {
+function requireGoogle(provider, kind, options = googleOptions()) {
   if (provider !== "google") return;
-  const serverHasKey = Boolean(state.config?.providers?.google_key_configured_on_server);
-  if (!state.googleKey && !serverHasKey) {
-    navigate("configuration");
-    throw new ApiError("Enter a Google API Key in Configuration first.", 422, "GOOGLE_KEY_REQUIRED");
+  if (!state.googleKey) {
+    navigate("stages");
+    openGoogleKeyDialog();
+    throw new ApiError(
+      "Enter the temporary Google API Key in Test Calls first.",
+      422,
+      "GOOGLE_KEY_REQUIRED",
+    );
   }
-  if (kind === "image" && !state.settings.imageModel) {
-    navigate("configuration");
+  if (kind === "image" && !options.google_image_model) {
+    navigate("stages");
     throw new ApiError("Enter the Google image model.", 422, "GOOGLE_MODEL_REQUIRED");
   }
-  if (kind === "transcription" && !state.settings.transcriptionModel) {
-    navigate("configuration");
+  if (kind === "transcription" && !options.google_transcription_model) {
+    navigate("stages");
     throw new ApiError("Enter the Google transcription model.", 422, "GOOGLE_MODEL_REQUIRED");
   }
-  if (kind === "normalization" && !state.settings.normalizationModel) {
-    navigate("configuration");
+  if (kind === "normalization" && !options.google_normalization_model) {
+    navigate("stages");
     throw new ApiError("Enter the Google normalization model.", 422, "GOOGLE_MODEL_REQUIRED");
   }
 }
@@ -527,7 +526,7 @@ function requestPreview(path, body) {
     headers: {
       Cookie: "HttpOnly operator session (browser-managed)",
       "X-CSRF-Token": masked(state.csrfToken),
-      "X-Google-API-Key": state.googleKey ? masked(state.googleKey) : "omitted / server fallback",
+      "X-Google-API-Key": state.googleKey ? masked(state.googleKey) : "required for Google test providers",
       "Idempotency-Key": body.idempotency_key,
       "Content-Type": "multipart/form-data; boundary=<browser-generated>",
     },
@@ -671,6 +670,7 @@ function hydrateConfiguration(config) {
   const saved = readPreferences();
   state.config = config;
   state.production = config.production || null;
+  state.routing = config.routing || { enabled: false, configured: false, mode: "direct" };
   state.defaultTemplates = { ...config.prompt_templates };
   state.templates = { ...config.prompt_templates };
   state.settings = {
@@ -694,30 +694,225 @@ function hydrateConfiguration(config) {
   $("headerEnvironment").textContent = config.environment.toUpperCase();
   $("templateFields").textContent = config.prompt_template_fields.map((field) => `{${field}}`).join(" · ");
   syncConfigurationControls();
+  syncRoutingControls();
   updateGoogleKeyStatus();
   renderProduction();
+}
+
+async function loadConsoleConfiguration() {
+  const [
+    { data: testConfiguration },
+    { data: productionConfiguration },
+    { data: routingConfiguration },
+  ] = await Promise.all([
+    apiCall("/internal/test/config"),
+    apiCall("/internal/production/config"),
+    apiCall("/internal/routing"),
+  ]);
+  return {
+    ...testConfiguration,
+    production: productionConfiguration.production,
+    routing: routingConfiguration,
+  };
 }
 
 function renderProduction() {
   const production = state.production;
   if (!production) return;
-  const key = production.google_key || {};
-  const row = $("productionKeyStatusRow");
-  if (key.configured) {
-    const source = key.source === "volume" ? "Docker volume" : "environment fallback";
-    $("productionKeyStatus").textContent = `Key configured · value hidden · ${source}`;
-    row.classList.add("is-ready");
-  } else {
-    $("productionKeyStatus").textContent = "Production key is not configured";
-    row.classList.remove("is-ready");
+  const container = $("productionPipelines");
+  if (!container) return;
+  container.textContent = "";
+  const pipelines = production.pipelines || {};
+  for (const [index, pipelineId] of PRODUCTION_PIPELINE_IDS.entries()) {
+    const configuration = pipelines[pipelineId];
+    if (!configuration) continue;
+    const article = document.createElement("article");
+    article.className = "card span-4 titled-card production-pipeline-card";
+    article.dataset.pipeline = pipelineId;
+    article.innerHTML = `
+      <header class="card-header"><span>0${index + 1}</span><h2></h2><span class="drag-dots" aria-hidden="true"></span></header>
+      <div class="card-body form-layout">
+        <div class="production-pipeline-summary">
+          <div class="secret-status-row" data-role="key-status"><span></span><i class="status-square" aria-hidden="true"></i></div>
+          <strong data-role="output-summary"></strong>
+        </div>
+        <form data-action="save-key" data-pipeline="${pipelineId}" class="form-layout">
+          <div class="form-grid cols-2">
+            <label class="field"><span>New Google API Key</span><input data-role="key-input" type="password" autocomplete="new-password" placeholder="Save or replace this pipeline key"></label>
+            <div class="static-field"><span>Storage</span><strong>moonli_secrets volume</strong></div>
+          </div>
+          <div class="action-row"><button class="primary-action" type="submit">Save Pipeline Key</button><button data-action="delete-key" data-pipeline="${pipelineId}" type="button">Delete Pipeline Key</button></div>
+        </form>
+        <form data-action="save-config" data-pipeline="${pipelineId}" class="form-layout production-config-form">
+          <div class="form-grid cols-3">
+            <label class="field"><span>Transcription model</span><input data-field="google_transcription_model" required></label>
+            <label class="field"><span>Normalization model</span><input data-field="google_normalization_model" required></label>
+            <label class="field"><span>Image model</span><input data-field="google_image_model" required></label>
+          </div>
+          <div class="form-grid cols-3">
+            <label class="field"><span>Google API base URL</span><input data-field="google_api_base_url" type="url" required></label>
+            <label class="field"><span>Timeout, seconds</span><input data-field="google_timeout_seconds" type="number" min="1" max="300" required></label>
+            <label class="field"><span>Image contract</span><input data-role="image-contract" readonly></label>
+          </div>
+          <div class="form-grid cols-3">
+            <label class="field"><span>Transcription provider</span><select data-field="transcription_provider"><option value="google">google</option><option value="mock">mock</option></select></label>
+            <label class="field"><span>Normalization provider</span><select data-field="normalization_provider"><option value="google">google</option><option value="mock">mock</option></select></label>
+            <label class="field"><span>Image provider</span><select data-field="image_provider"><option value="google">google</option><option value="mock">mock</option></select></label>
+          </div>
+          <div class="form-grid cols-4">
+            <label class="field"><span>Aspect ratio</span><select data-field="google_image_aspect_ratio"><option>1:1</option><option>2:3</option><option>3:2</option><option>3:4</option><option>4:3</option><option>9:16</option><option>16:9</option></select></label>
+            <label class="field"><span>Image size</span><select data-field="google_image_size"><option>1K</option><option>2K</option><option>4K</option></select></label>
+            <label class="field"><span>Cleanup passes</span><input data-field="palette_cleanup_passes" type="number" min="0" max="3"></label>
+            <label class="field"><span>Generation attempts</span><input data-field="palette_generation_attempts" type="number" min="1" max="5"></label>
+          </div>
+          <label class="field"><span>Transcription instruction</span><textarea data-field="transcription_instruction" rows="5"></textarea></label>
+          <label class="field"><span>Normalization instruction</span><textarea data-field="normalization_instruction" rows="10"></textarea></label>
+          <label class="field" data-role="prompt-field"><span></span><textarea rows="18"></textarea></label>
+          <div class="action-row"><button class="primary-action" type="submit">Save Pipeline Configuration</button></div>
+        </form>
+        <div data-role="client-contract"></div>
+      </div>`;
+    article.querySelector("h2").textContent = pipelineId.replace("pipeline", "Pipeline");
+    const key = configuration.google_key || {};
+    const status = article.querySelector('[data-role="key-status"]');
+    status.querySelector("span").textContent = key.configured
+      ? `Key configured · value hidden · ${key.source || "volume"}`
+      : "Google API key is not configured";
+    status.classList.toggle("is-ready", Boolean(key.configured));
+    const output = configuration.output || {};
+    article.querySelector('[data-role="output-summary"]').textContent = pipelineId === "pipeline-3"
+      ? "3 JPEG files · 1024×1024 · no palette/vector/layer processing"
+      : `${output.type || "image"} · ${output.width || 1024}×${output.height || 1024}`;
+    for (const field of article.querySelectorAll("[data-field]")) {
+      field.value = configuration[field.dataset.field] ?? "";
+    }
+    article.querySelector('[data-role="image-contract"]').value = pipelineId === "pipeline-3"
+      ? "3 × JPEG · 1024×1024"
+      : `${configuration.google_image_aspect_ratio} · ${configuration.google_image_size}`;
+    const promptField = article.querySelector('[data-role="prompt-field"]');
+    const promptArea = promptField.querySelector("textarea");
+    if (pipelineId === "pipeline-3") {
+      promptField.querySelector("span").textContent = "Image system instruction";
+      promptArea.dataset.field = "image_system_instruction";
+      promptArea.value = configuration.image_system_instruction || "";
+    } else {
+      promptField.querySelector("span").textContent = "Prompt template";
+      promptArea.dataset.field = "prompt_template";
+      promptArea.value = configuration.prompt_template || "";
+    }
+    const clientContract = article.querySelector('[data-role="client-contract"]');
+    if (pipelineId === "pipeline-3") {
+      renderPipeline3Integration(clientContract);
+    } else {
+      const label = document.createElement("label");
+      label.className = "field";
+      const title = document.createElement("span");
+      title.textContent = "Production client request";
+      const preview = document.createElement("textarea");
+      preview.className = "production-request";
+      preview.rows = 16;
+      preview.readOnly = true;
+      preview.value = productionClientPreview(pipelineId);
+      label.append(title, preview);
+      clientContract.append(label);
+    }
+    container.append(article);
   }
-  $("productionKeyStorage").textContent = production.storage === "docker-volume"
-    ? "moonli_secrets volume"
-    : production.storage || "—";
-  for (const request of production.requests || []) {
-    const fieldId = PRODUCTION_REQUEST_FIELDS[request.id];
-    if (fieldId && $(fieldId)) $(fieldId).value = pretty(request.request);
+}
+
+function downloadTextAsset(filename, content) {
+  const url = URL.createObjectURL(new Blob([content], { type: "text/x-python;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function integrationAsset(item, type) {
+  const details = document.createElement("details");
+  details.className = "integration-asset";
+  const summary = document.createElement("summary");
+  summary.textContent = item.title;
+  const body = document.createElement("div");
+  body.className = "integration-asset-body";
+  const code = document.createElement("textarea");
+  code.className = "production-request integration-code";
+  code.rows = type === "script" ? 28 : 22;
+  code.readOnly = true;
+  code.spellcheck = false;
+  code.value = item.content;
+  const actions = document.createElement("div");
+  actions.className = "action-row";
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.textContent = type === "script" ? "Copy Full Script" : "Copy Full Request";
+  copy.addEventListener("click", () => copyTextResult(item.content, item.title));
+  actions.append(copy);
+  if (type === "script") {
+    const download = document.createElement("button");
+    download.type = "button";
+    download.textContent = `Download ${item.filename}`;
+    download.addEventListener("click", () => downloadTextAsset(item.filename, item.content));
+    actions.append(download);
   }
+  body.append(code, actions);
+  details.append(summary, body);
+  return details;
+}
+
+function populatePipeline3Integration(container, payload) {
+  container.replaceChildren();
+  const note = document.createElement("p");
+  note.className = "form-hint integration-note";
+  note.textContent = `${payload.installation.required_change} Both scripts reuse ${payload.installation.shared_device_identity}; each new operation receives a fresh UUID.`;
+  const requestHeading = document.createElement("h3");
+  requestHeading.textContent = "Client → Moonli API requests";
+  const requestGrid = document.createElement("div");
+  requestGrid.className = "integration-grid";
+  for (const item of payload.requests) requestGrid.append(integrationAsset(item, "request"));
+  const scriptHeading = document.createElement("h3");
+  scriptHeading.textContent = "Ready-to-paste TouchDesigner scripts";
+  const scriptGrid = document.createElement("div");
+  scriptGrid.className = "integration-grid";
+  for (const item of payload.scripts) scriptGrid.append(integrationAsset(item, "script"));
+  container.append(note, requestHeading, requestGrid, scriptHeading, scriptGrid);
+}
+
+function renderPipeline3Integration(host) {
+  const details = document.createElement("details");
+  details.className = "pipeline-integration";
+  const summary = document.createElement("summary");
+  summary.innerHTML = "<strong>TouchDesigner integration kit</strong><span>2 API requests · 2 full scripts</span>";
+  const content = document.createElement("div");
+  content.className = "pipeline-integration-body";
+  content.textContent = "Expand to load the integration kit.";
+  details.append(summary, content);
+  details.addEventListener("toggle", async () => {
+    if (!details.open || details.dataset.loaded === "true") return;
+    content.textContent = "Loading complete contracts and scripts...";
+    try {
+      if (!state.pipeline3IntegrationPromise) {
+        state.pipeline3IntegrationPromise = apiCall(
+          "/internal/production/pipelines/pipeline-3/integration",
+        ).then(({ data }) => data);
+      }
+      state.pipeline3Integration = await state.pipeline3IntegrationPromise;
+      details.dataset.loaded = "true";
+      populatePipeline3Integration(content, state.pipeline3Integration);
+    } catch (error) {
+      state.pipeline3IntegrationPromise = null;
+      content.textContent = errorText(error);
+      notice(errorText(error), "error");
+    }
+  });
+  host.append(details);
+}
+
+function productionClientPreview(pipelineId) {
+  return `POST https://moonli.shmoza.net/v1/generate\nAuthorization: Bearer <MOONLI_ACCESS_KEY>\nX-Moonli-Device-Id: <td-########|aa-########>\nIdempotency-Key: <NEW_UUID>\nContent-Type: application/json\n\n{"type":"text","pipeline":"${pipelineId}","text":"<USER_REQUEST>"}`;
 }
 
 function syncConfigurationControls() {
@@ -737,15 +932,28 @@ function syncConfigurationControls() {
   $("templatePipeline2").value = state.templates["pipeline-2"] || "";
 }
 
+function syncRoutingControls() {
+  const routing = state.routing || { enabled: false, configured: false, mode: "direct" };
+  $("routingProxyEnabled").checked = Boolean(routing.enabled);
+  $("routingVlessUri").value = "";
+  const status = $("routingStatus");
+  if (routing.enabled) {
+    $("routingStatusText").textContent = "VLESS proxy enabled · connection configured · value hidden";
+    status.classList.add("is-ready");
+  } else if (routing.configured) {
+    $("routingStatusText").textContent = "Direct routing enabled · VLESS connection saved · value hidden";
+    status.classList.remove("is-ready");
+  } else {
+    $("routingStatusText").textContent = "Direct routing enabled · no VLESS connection configured";
+    status.classList.remove("is-ready");
+  }
+}
+
 function updateGoogleKeyStatus() {
   const row = $("googleKeyStatus")?.parentElement;
   if (!row) return;
-  const serverKey = Boolean(state.config?.providers?.google_key_configured_on_server);
   if (state.googleKey) {
     $("googleKeyStatus").textContent = `Tab key configured · ${masked(state.googleKey)}`;
-    row.classList.add("is-ready");
-  } else if (serverKey) {
-    $("googleKeyStatus").textContent = "The server Google API Key will be used";
     row.classList.add("is-ready");
   } else {
     $("googleKeyStatus").textContent = "No key set for this tab";
@@ -833,8 +1041,7 @@ async function handleLogin(event) {
     }
     state.csrfToken = loginData.csrf_token;
     sessionStorage.setItem("moonli.csrf", state.csrfToken);
-    const { data } = await apiCall("/internal/production/config");
-    hydrateConfiguration(data);
+    hydrateConfiguration(await loadConsoleConfiguration());
     $("accessKey").value = "";
     $("loginView").classList.add("hidden");
     $("appShell").classList.remove("hidden");
@@ -854,8 +1061,7 @@ async function restoreSession() {
   if (!state.csrfToken) return;
   try {
     await apiCall("/internal/auth/session");
-    const { data } = await apiCall("/internal/production/config");
-    hydrateConfiguration(data);
+    hydrateConfiguration(await loadConsoleConfiguration());
     $("loginView").classList.add("hidden");
     $("appShell").classList.remove("hidden");
     navigate("overview");
@@ -877,10 +1083,8 @@ async function handleProductionGoogleKey(event) {
       body: JSON.stringify({ google_api_key: value }),
     });
     state.production.google_key = data.google_key;
-    state.config.providers.google_key_configured_on_server = Boolean(data.google_key?.configured);
     $("productionGoogleKey").value = "";
     renderProduction();
-    updateGoogleKeyStatus();
     notice("Production Google API Key saved to the Docker volume.");
   } catch (error) {
     notice(errorText(error), "error");
@@ -894,12 +1098,90 @@ async function handleClearProductionGoogleKey() {
   try {
     const { data } = await apiCall("/internal/production/google-key", { method: "DELETE" });
     state.production.google_key = data.google_key;
-    state.config.providers.google_key_configured_on_server = false;
     renderProduction();
-    updateGoogleKeyStatus();
     notice("Production Google API Key deleted.");
   } catch (error) {
     notice(errorText(error), "error");
+  }
+}
+
+async function reloadProductionConfiguration() {
+  const { data } = await apiCall("/internal/production/config");
+  state.production = data.production || null;
+  renderProduction();
+}
+
+async function handleProductionPipelineSubmit(event) {
+  const form = event.target.closest("form[data-action]");
+  if (!form || !$("productionPipelines").contains(form)) return;
+  event.preventDefault();
+  const pipelineId = form.dataset.pipeline;
+  const button = form.querySelector('button[type="submit"]');
+  if (form.dataset.action === "save-key") {
+    const input = form.querySelector('[data-role="key-input"]');
+    const value = input.value.trim();
+    if (!value) return notice(`Enter a Google API Key for ${pipelineId}.`, "error");
+    setPending(button, true, "Saving...");
+    try {
+      await apiCall(`/internal/production/pipelines/${pipelineId}/google-key`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ google_api_key: value }),
+      });
+      input.value = "";
+      await reloadProductionConfiguration();
+      notice(`${pipelineId} Google API Key saved.`);
+    } catch (error) {
+      notice(errorText(error), "error");
+    } finally {
+      setPending(button, false, "Saving...");
+    }
+    return;
+  }
+  if (form.dataset.action !== "save-config") return;
+  const current = state.production?.pipelines?.[pipelineId];
+  if (!current) return notice("Pipeline configuration is unavailable.", "error");
+  const payload = { ...current };
+  delete payload.google_key;
+  delete payload.output;
+  for (const field of form.querySelectorAll("[data-field]")) {
+    const name = field.dataset.field;
+    payload[name] = ["google_timeout_seconds", "palette_cleanup_passes", "palette_generation_attempts"].includes(name)
+      ? Number(field.value)
+      : field.value;
+  }
+  setPending(button, true, "Saving...");
+  try {
+    await apiCall(`/internal/production/pipelines/${pipelineId}/config`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    await reloadProductionConfiguration();
+    notice(`${pipelineId} production configuration saved.`);
+  } catch (error) {
+    notice(errorText(error), "error");
+  } finally {
+    setPending(button, false, "Saving...");
+  }
+}
+
+async function handleProductionPipelineClick(event) {
+  const button = event.target.closest('button[data-action="delete-key"]');
+  if (!button || !$("productionPipelines").contains(button)) return;
+  const pipelineId = button.dataset.pipeline;
+  if (!window.confirm(`Delete the ${pipelineId} Google API Key?`)) return;
+  setPending(button, true, "Deleting...");
+  try {
+    await apiCall(`/internal/production/pipelines/${pipelineId}/google-key`, {
+      method: "DELETE",
+    });
+    await reloadProductionConfiguration();
+    notice(`${pipelineId} Google API Key deleted.`);
+  } catch (error) {
+    notice(errorText(error), "error");
+  } finally {
+    setPending(button, false, "Deleting...");
   }
 }
 
@@ -1099,10 +1381,13 @@ async function handlePipeline(event) {
   const imageProvider = state.settings.imageProvider;
   const transcriptionProvider = state.settings.transcriptionProvider;
   const normalizationProvider = state.settings.normalizationProvider;
+  const selectedGoogleOptions = googleOptions();
   try {
-    requireGoogle(imageProvider, "image");
-    if (inputType === "audio") requireGoogle(transcriptionProvider, "transcription");
-    requireGoogle(normalizationProvider, "normalization");
+    requireGoogle(imageProvider, "image", selectedGoogleOptions);
+    if (inputType === "audio") {
+      requireGoogle(transcriptionProvider, "transcription", selectedGoogleOptions);
+    }
+    requireGoogle(normalizationProvider, "normalization", selectedGoogleOptions);
     const form = new FormData();
     form.append("type", inputType);
     form.append("pipeline", pipeline);
@@ -1120,8 +1405,8 @@ async function handlePipeline(event) {
       if (!file) throw new ApiError("Select an audio file.", 422, "INVALID_INPUT");
       form.append("audio", file);
     }
-    form.append("prompt_template", state.templates[pipeline]);
-    appendGoogleOptions(form);
+    if (pipeline !== "pipeline-3") form.append("prompt_template", state.templates[pipeline]);
+    appendGoogleOptions(form, selectedGoogleOptions);
     const idempotency = $("pipelineIdempotency").value;
     const multipart = {
       type: inputType,
@@ -1130,10 +1415,12 @@ async function handlePipeline(event) {
       image_provider: imageProvider,
       transcription_provider: transcriptionProvider,
       normalization_provider: normalizationProvider,
-      prompt_template: `[${state.templates[pipeline].length} chars]`,
+      prompt_template: pipeline === "pipeline-3"
+        ? "not applicable"
+        : `[${state.templates[pipeline].length} chars]`,
       quantization_cleanup_passes: state.settings.cleanupPasses,
       generation_attempts: state.settings.generationAttempts,
-      ...googleOptions(),
+      ...selectedGoogleOptions,
     };
     $("pipelineRequestPreview").textContent = pretty(requestPreview("/internal/test/pipeline", {
       idempotency_key: idempotency,
@@ -1433,6 +1720,31 @@ async function persistServerSettings() {
   return data;
 }
 
+async function handleRoutingSettings(event) {
+  event.preventDefault();
+  const button = $("saveRoutingSettings");
+  const enabled = $("routingProxyEnabled").checked;
+  const vlessUri = $("routingVlessUri").value.trim();
+  const payload = { enabled };
+  if (vlessUri) payload.vless_uri = vlessUri;
+  setPending(button, true, "Saving...");
+  try {
+    const { data } = await apiCall("/internal/routing", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    state.routing = data;
+    syncRoutingControls();
+    notice(enabled ? "Google API proxy routing enabled." : "Direct Google API routing enabled.");
+  } catch (error) {
+    $("routingVlessUri").value = "";
+    notice(errorText(error), "error");
+  } finally {
+    setPending(button, false, "Saving...");
+  }
+}
+
 async function handleGoogleSettings(event) {
   event.preventDefault();
   const baseUrl = $("googleBaseUrl").value.trim();
@@ -1541,8 +1853,9 @@ function bindEvents() {
     );
   });
   $("googleSettingsForm").addEventListener("submit", handleGoogleSettings);
-  $("productionGoogleKeyForm").addEventListener("submit", handleProductionGoogleKey);
-  $("clearProductionGoogleKey").addEventListener("click", handleClearProductionGoogleKey);
+  $("routingSettingsForm").addEventListener("submit", handleRoutingSettings);
+  $("productionPipelines").addEventListener("submit", handleProductionPipelineSubmit);
+  $("productionPipelines").addEventListener("click", handleProductionPipelineClick);
   $("rotateAccessKeyForm").addEventListener("submit", handleRotateAccessKey);
   $("createBackup").addEventListener("click", handleCreateBackup);
   $("inspectBackup").addEventListener("click", handleInspectBackup);

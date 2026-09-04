@@ -38,9 +38,9 @@ def test_lab_stage_cards_follow_the_pipeline_and_expose_result_actions() -> None
 
 
 def test_full_run_lives_in_test_call_view_and_uses_configuration_defaults() -> None:
-    html = (Path(__file__).parents[1] / "app" / "web" / "index.html").read_text(
-        encoding="utf-8"
-    )
+    root = Path(__file__).parents[1]
+    html = (root / "app" / "web" / "index.html").read_text(encoding="utf-8")
+    javascript = (root / "app" / "web" / "app.js").read_text(encoding="utf-8")
 
     assert '<span>Test Calls</span><span class="nav-ordinal">02</span>' in html
     assert 'data-view="pipeline"' not in html
@@ -48,6 +48,7 @@ def test_full_run_lives_in_test_call_view_and_uses_configuration_defaults() -> N
     assert '<header class="card-header no-ordinal"><h2>Full Run</h2>' in html
     assert 'id="pipelineInputType"' in html
     assert 'id="pipelineTag"' in html
+    assert '<option value="pipeline-3">pipeline-3 · ZIP / 3 JPEG</option>' in html
     for removed_control in (
         "pipelineImageProvider",
         "pipelineTranscriptionProvider",
@@ -65,6 +66,49 @@ def test_full_run_lives_in_test_call_view_and_uses_configuration_defaults() -> N
         "settingsGenerationAttempts",
     ):
         assert f'id="{settings_control}"' in html
+    assert "pipeline3GoogleOptions" not in javascript
+    assert "pipeline3Configuration" not in javascript
+    assert "Enter the temporary Google API Key in Test Calls first." in javascript
+    assert 'apiCall("/internal/test/config")' in javascript
+    assert "...testConfiguration" in javascript
+
+
+def test_test_google_connection_and_prompt_templates_live_in_test_calls() -> None:
+    html = (Path(__file__).parents[1] / "app" / "web" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    test_calls = html.split('<section id="view-stages"', 1)[1].split(
+        '<section id="view-configuration"', 1
+    )[0]
+    configuration = html.split('<section id="view-configuration"', 1)[1].split(
+        '<section id="view-production"', 1
+    )[0]
+
+    for content in (
+        "<h2>Google connection</h2>",
+        '<form id="googleSettingsForm"',
+        "<h2>Prompt templates</h2>",
+        '<form id="templatesForm"',
+    ):
+        assert content in test_calls
+        assert content not in configuration
+
+
+def test_configuration_contains_private_vless_routing_controls() -> None:
+    root = Path(__file__).parents[1]
+    html = (root / "app" / "web" / "index.html").read_text(encoding="utf-8")
+    javascript = (root / "app" / "web" / "app.js").read_text(encoding="utf-8")
+    configuration = html.split('<section id="view-configuration"', 1)[1].split(
+        '<section id="view-production"', 1
+    )[0]
+
+    assert "<h2>Routing</h2>" in configuration
+    assert 'id="routingProxyEnabled"' in configuration
+    assert 'id="routingVlessUri" type="password"' in configuration
+    assert 'id="saveRoutingSettings"' in configuration
+    assert 'apiCall("/internal/routing")' in javascript
+    assert 'apiCall("/internal/routing", {' in javascript
+    assert "state.routing = data" in javascript
 
 
 def test_overview_contains_only_system_and_production_usage_cards() -> None:
@@ -88,6 +132,22 @@ def test_overview_contains_only_system_and_production_usage_cards() -> None:
     assert "Providers" not in overview
     assert '<title>Moonli</title>' in html
     assert "halftone-moon-alpha.png" in html
+
+
+def test_production_renders_three_independent_pipeline_sections() -> None:
+    root = Path(__file__).parents[1]
+    html = (root / "app" / "web" / "index.html").read_text(encoding="utf-8")
+    javascript = (root / "app" / "web" / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="productionPipelines"' in html
+    assert 'const PRODUCTION_PIPELINE_IDS = ["pipeline-1", "pipeline-2", "pipeline-3"]' in javascript
+    assert 'data-action="save-key"' in javascript
+    assert 'data-action="save-config"' in javascript
+    assert "3 JPEG files · 1024×1024" in javascript
+    assert "TouchDesigner integration kit" in javascript
+    assert "/internal/production/pipelines/pipeline-3/integration" in javascript
+    assert "Copy Full Request" in javascript
+    assert "Copy Full Script" in javascript
 
 
 def test_login_uses_the_saved_project_accent_before_authentication() -> None:

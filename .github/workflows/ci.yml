@@ -51,15 +51,66 @@ jobs:
           MOONLI_HTTP_PORT: "18080"
           MOONLI_HTTPS_PORT: "18443"
           MOONLI_LOOPBACK_API_PORT: "18000"
+          MOONLI_TLS_CERTS_PATH: /tmp/moonli-ci-certs
+          MOONLI_ENV: production
+          MOONLI_ALLOWED_HOSTS: localhost,127.0.0.1
+          MOONLI_CLIENT_API_KEYS: ci-production-client-key-01
+          MOONLI_OPERATOR_ACCESS_KEY: ci-production-operator-key-01
+          MOONLI_IMAGE_PROVIDER: google
+          MOONLI_TRANSCRIPTION_PROVIDER: google
+          MOONLI_NORMALIZATION_PROVIDER: google
+          MOONLI_GOOGLE_IMAGE_MODEL: ci-image-model
+          MOONLI_GOOGLE_TRANSCRIPTION_MODEL: ci-transcription-model
+          MOONLI_GOOGLE_NORMALIZATION_MODEL: ci-normalization-model
         run: |
+          mkdir -p "$MOONLI_TLS_CERTS_PATH"
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout "$MOONLI_TLS_CERTS_PATH/privkey.pem" \
+            -out "$MOONLI_TLS_CERTS_PATH/fullchain.pem" \
+            -subj '/CN=localhost' >/dev/null 2>&1
           docker compose up --build -d --wait
-          curl --fail --silent --show-error --insecure --header 'Host: localhost' https://127.0.0.1:18443/health
+          base_url='https://127.0.0.1:18443'
+          curl --fail --silent --show-error --insecure --header 'Host: localhost' "$base_url/health"
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' --insecure --header 'Host: localhost' https://127.0.0.1:18443/docs)" = "404"
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' --insecure --header 'Host: localhost' https://127.0.0.1:18443/metrics)" = "404"
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' --insecure --header 'Host: invalid.example' https://127.0.0.1:18443/health)" = "421"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --insecure --header 'Host: localhost' "$base_url/internal/test/config")" = "401"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --insecure --header 'Host: localhost' "$base_url/internal/routing")" = "401"
+          docker exec moonli-vless-proxy /usr/local/bin/xray run -test \
+            -config /run/moonli-secrets/xray-routing.json
+          login="$(curl --fail --silent --show-error --insecure --cookie-jar /tmp/moonli-ci.cookies \
+            --header 'Host: localhost' --header 'Content-Type: application/json' \
+            --data '{"access_key":"ci-production-operator-key-01"}' \
+            "$base_url/internal/auth/session")"
+          csrf="$(printf '%s' "$login" | python -c 'import json,sys; print(json.load(sys.stdin)["csrf_token"])')"
+          curl --fail --silent --show-error --insecure --cookie /tmp/moonli-ci.cookies \
+            --header 'Host: localhost' "$base_url/internal/test/config" >/tmp/moonli-test-config.json
+          curl --fail --silent --show-error --insecure --cookie /tmp/moonli-ci.cookies \
+            --header 'Host: localhost' --header "X-CSRF-Token: $csrf" \
+            --header 'Content-Type: application/json' \
+            --data '{"provider":"mock","text":"production test call"}' \
+            "$base_url/internal/test/normalize" >/tmp/moonli-test-normalize.json
+          curl --fail --silent --show-error --insecure --cookie /tmp/moonli-ci.cookies \
+            --header 'Host: localhost' --header "X-CSRF-Token: $csrf" \
+            --header 'Idempotency-Key: ci-production-full-run-0001' \
+            --form type=text --form pipeline=pipeline-3 --form text='cute fox icon' \
+            --form image_provider=mock --form transcription_provider=mock \
+            --form normalization_provider=mock \
+            "$base_url/internal/test/pipeline" --output /tmp/moonli-test-run.zip
+          python - <<'PY'
+          import json
+          import zipfile
+
+          assert json.load(open('/tmp/moonli-test-config.json', encoding='utf-8'))['environment'] == 'production'
+          assert json.load(open('/tmp/moonli-test-normalize.json', encoding='utf-8'))['normalized_text'] == 'production test call'
+          with zipfile.ZipFile('/tmp/moonli-test-run.zip') as archive:
+              manifest = json.loads(archive.read('manifest.json'))
+          assert manifest['pipeline'] == 'pipeline-3'
+          assert manifest['input_type'] == 'text'
+          PY
       - name: Bounded failure diagnostics
         if: failure()
-        run: docker compose logs --tail 100 api gateway
+        run: docker compose logs --tail 100 vless-proxy api gateway
       - name: Stop test stack
         if: always()
         run: docker compose down --volumes --remove-orphans

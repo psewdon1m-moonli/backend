@@ -13,9 +13,12 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app.api.errors import install_error_handlers
+from app.api.routes import lab as lab_routes
 from app.api.routes.lab import router
 from app.composition import build_components
+from app.providers.image_generation.variants import MockImageVariantGenerator
 from app.providers.prompt_normalization import google as normalization_google
+from app.providers.prompt_normalization.mock import MockPromptNormalizer
 from app.settings import Settings
 
 
@@ -54,6 +57,19 @@ class _NormalizationClient:
         return _NormalizationResponse()
 
 
+class _ProductionNormalizer(MockPromptNormalizer):
+    name = "google"
+
+
+class _ProductionImageVariants(MockImageVariantGenerator):
+    name = "google"
+
+
+class _ForbiddenProductionStore:
+    def __getattr__(self, name: str):
+        raise AssertionError(f"test route accessed production state: {name}")
+
+
 def _client(tmp_path, *, environment: str = "test") -> TestClient:
     settings = replace(
         Settings.from_env(),
@@ -63,7 +79,18 @@ def _client(tmp_path, *, environment: str = "test") -> TestClient:
         api_keys=("lab-access-key",),
         operator_access_key="lab-operator-access-key-01",
     )
-    components = build_components(replace(settings, environment="test"))
+    if environment == "production":
+        settings = replace(
+            settings,
+            image_provider="google",
+            transcription_provider="google",
+            normalization_provider="google",
+            google_image_model="test-image-model",
+            google_transcription_model="test-transcription-model",
+            google_normalization_model="test-normalization-model",
+            google_api_key="",
+        )
+    components = build_components(settings)
     app = FastAPI()
     app.state.moonli_settings = settings
     app.state.client_authenticator = components.authenticator
@@ -71,6 +98,9 @@ def _client(tmp_path, *, environment: str = "test") -> TestClient:
     app.state.rate_limiter = components.rate_limiter
     app.state.artifact_store = components.artifact_store
     app.state.production_secret_store = components.production_secret_store
+    app.state.production_pipeline_config_store = (
+        components.production_pipeline_config_store
+    )
     app.state.run_repository = components.run_repository
     app.state.metrics = components.metrics
     app.state.operator_auth_store = components.operator_auth_store
@@ -129,7 +159,11 @@ def test_lab_config_and_custom_prompt_are_authenticated(tmp_path) -> None:
         )
     assert unauthorized.status_code == 401
     assert config.status_code == 200
-    assert set(config.json()["pipelines"]) == {"pipeline-1", "pipeline-2"}
+    assert set(config.json()["pipelines"]) == {
+        "pipeline-1",
+        "pipeline-2",
+        "pipeline-3",
+    }
     assert "api_key" not in json.dumps(config.json()).lower()
     assert prompt.status_code == 200
     assert prompt.json()["prompt"].startswith("pipeline-1")
@@ -396,7 +430,159 @@ def test_lab_full_pipeline_normalizes_text_before_prompt_builder(tmp_path, monke
     assert "тестовый запуск" not in prompt
 
 
-def test_lab_is_not_available_in_production(tmp_path) -> None:
+def test_lab_full_pipeline_supports_pipeline_3_text_and_audio(tmp_path) -> None:
+    with _client(tmp_path) as client:
+        client.app.state.production_secret_store = _ForbiddenProductionStore()
+        client.app.state.production_pipeline_config_store = _ForbiddenProductionStore()
+        text = client.post(
+            "/internal/test/pipeline",
+            headers=_headers(idempotency=True),
+            data={
+                "type": "text",
+                "pipeline": "pipeline-3",
+                "text": "cute penguin icon",
+            },
+        )
+        audio = client.post(
+            "/internal/test/pipeline",
+            headers=_headers(idempotency=True),
+            data={"type": "audio", "pipeline": "pipeline-3"},
+            files={"audio": ("voice.wav", b"RIFF-pipeline-3-audio", "audio/wav")},
+        )
+
+    assert text.status_code == 200
+    assert audio.status_code == 200
+    assert text.headers["content-type"] == "application/vnd.moonli.run-artifacts+zip"
+    assert text.headers["x-moonli-pipeline"] == "pipeline-3"
+    assert text.headers["x-moonli-input-type"] == "text"
+    assert text.headers["x-moonli-palette-quantized"] == "false"
+    assert audio.headers["x-moonli-input-type"] == "audio"
+    assert text.headers["x-moonli-run-id"] != audio.headers["x-moonli-run-id"]
+
+    with zipfile.ZipFile(BytesIO(text.content)) as archive:
+        text_names = set(archive.namelist())
+        text_manifest = json.loads(archive.read("manifest.json"))
+        assert archive.read("input/request.txt") == b"cute penguin icon"
+        with zipfile.ZipFile(BytesIO(archive.read("output/moonli-images.zip"))) as nested:
+            assert nested.namelist() == ["image_1.jpg", "image_2.jpg", "image_3.jpg"]
+            for name in nested.namelist():
+                image = Image.open(BytesIO(nested.read(name)))
+                assert image.size == (1024, 1024)
+                assert image.mode == "RGB"
+                assert image.format == "JPEG"
+    assert {
+        "text/normalized.txt",
+        "images/image_1.jpg",
+        "images/image_2.jpg",
+        "images/image_3.jpg",
+        "reports/execution-trace.json",
+        "output/moonli-images.zip",
+    } <= text_names
+    assert "text/transcription.txt" not in text_names
+    assert text_manifest["pipeline"] == "pipeline-3"
+    assert text_manifest["output_mode"] == "jpeg_set"
+    assert text_manifest["palette_version"] is None
+    text_stages = {stage["name"]: stage for stage in text_manifest["stages"]}
+    assert text_stages["normalization"]["status"] == "included"
+    assert text_stages["image_generation"]["status"] == "included"
+    for stage in (
+        "transcription",
+        "prompt_building",
+        "quantization",
+        "validation",
+        "vectorization",
+        "segmentation",
+    ):
+        assert text_stages[stage]["status"] == "not_applicable"
+
+    with zipfile.ZipFile(BytesIO(audio.content)) as archive:
+        audio_names = set(archive.namelist())
+        audio_manifest = json.loads(archive.read("manifest.json"))
+        assert archive.read("input/voice.wav") == b"RIFF-pipeline-3-audio"
+        assert archive.read("text/transcription.txt")
+    assert "text/transcription.txt" in audio_names
+    assert audio_manifest["pipeline"] == "pipeline-3"
+    assert audio_manifest["input_type"] == "audio"
+    audio_stages = {stage["name"]: stage for stage in audio_manifest["stages"]}
+    assert audio_stages["transcription"]["status"] == "included"
+
+
+def test_google_test_call_requires_browser_key_without_production_fallback(
+    tmp_path,
+) -> None:
+    with _client(tmp_path) as client:
+        client.app.state.moonli_settings = replace(
+            client.app.state.moonli_settings,
+            google_api_key="must-not-be-used-by-test-routes",
+        )
+        client.app.state.production_secret_store = _ForbiddenProductionStore()
+        response = client.post(
+            "/internal/test/normalize",
+            headers=_headers(),
+            json={
+                "provider": "google",
+                "text": "cute fox",
+                "google_normalization_model": "gemini-test-model",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == {
+        "code": "INVALID_INPUT",
+        "message": "A Google API key is required for a Google-provider test.",
+    }
+
+
+def test_lab_is_available_to_authenticated_operator_in_production(tmp_path) -> None:
     with _client(tmp_path, environment="production") as client:
-        response = client.get("/internal/test/config", headers=_headers())
-    assert response.status_code == 404
+        config = client.get("/internal/test/config", headers=_headers())
+        mock_call = client.post(
+            "/internal/test/normalize",
+            headers=_headers(),
+            json={"provider": "mock", "text": "moon"},
+        )
+        client.cookies.clear()
+        unauthorized = client.get("/internal/test/config", headers=_headers())
+    assert config.status_code == 200
+    assert config.json()["environment"] == "production"
+    assert mock_call.status_code == 200
+    assert mock_call.json()["normalized_text"] == "moon"
+    assert unauthorized.status_code == 401
+
+
+def test_pipeline_3_test_run_uses_request_config_in_production(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        lab_routes,
+        "_make_prompt_normalizer",
+        lambda *args, **kwargs: _ProductionNormalizer(),
+    )
+    monkeypatch.setattr(
+        lab_routes,
+        "_make_image_variant_generator",
+        lambda *args, **kwargs: _ProductionImageVariants(),
+    )
+    with _client(tmp_path, environment="production") as client:
+        client.app.state.production_secret_store = _ForbiddenProductionStore()
+        client.app.state.production_pipeline_config_store = _ForbiddenProductionStore()
+        headers = _headers(idempotency=True)
+        headers["X-Google-API-Key"] = "browser-test-key"
+        response = client.post(
+            "/internal/test/pipeline",
+            headers=headers,
+            data={
+                "type": "text",
+                "pipeline": "pipeline-3",
+                "text": "cute fox icon",
+                "image_provider": "google",
+                "transcription_provider": "google",
+                "normalization_provider": "google",
+                "google_image_model": "test-image-model",
+                "google_transcription_model": "test-transcription-model",
+                "google_normalization_model": "test-normalization-model",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["x-moonli-pipeline"] == "pipeline-3"
+    assert response.headers["x-moonli-image-provider"] == "google"
+    assert response.headers["x-moonli-normalization-provider"] == "google"

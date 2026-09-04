@@ -14,6 +14,7 @@ audio_handler
 frontend
 video_project
 *.json
+!deploy/xray/direct.json
 *.jpg
 *.zip
 *.png

@@ -140,7 +140,7 @@ install_service() {
   else
     fail "verified updater bundle is missing"
   fi
-  docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml up -d --wait
+  docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml up -d --build --wait
   domain="$(value MOONLI_DOMAIN)"
   attempts=0
   until curl --fail --silent --show-error --max-time 5 --header "Host: $domain" \
@@ -148,7 +148,7 @@ install_service() {
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 12 ]; then
       docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml ps >&2
-      docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml logs --tail 80 api gateway >&2
+      docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml logs --tail 80 vless-proxy api gateway >&2
       fail "Moonli loopback readiness check failed"
     fi
     sleep 5
@@ -158,7 +158,7 @@ install_service() {
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 24 ]; then
       docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml ps >&2
-      docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml logs --tail 80 api gateway >&2
+      docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml logs --tail 80 vless-proxy api gateway >&2
       fail "Moonli did not become healthy"
     fi
     sleep 5
@@ -173,7 +173,7 @@ install_service() {
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 24 ]; then
       docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml ps >&2
-      docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml logs --tail 80 api gateway >&2
+      docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml logs --tail 80 vless-proxy api gateway >&2
       fail "Moonli failed after removing the plaintext operator seed"
     fi
     sleep 5

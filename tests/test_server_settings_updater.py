@@ -33,7 +33,7 @@ def _production_components(tmp_path):
     return settings, build_components(settings)
 
 
-def test_invalid_production_settings_are_rejected_before_persistence(tmp_path) -> None:
+def test_mock_test_settings_are_isolated_from_production_runtime(tmp_path) -> None:
     settings, components = _production_components(tmp_path)
     application = FastAPI()
     application.state.moonli_settings = components.settings
@@ -46,15 +46,20 @@ def test_invalid_production_settings_are_rejected_before_persistence(tmp_path) -
     client = TestClient(application)
     client.cookies.set(settings.operator_cookie_name, session.token)
     client.headers.update({"X-CSRF-Token": session.csrf_token})
-    before = components.server_settings_store.get()
-    invalid = dict(before)
-    invalid["image_provider"] = "mock"
+    updated = dict(components.server_settings_store.get())
+    updated["image_provider"] = "mock"
+    updated["transcription_provider"] = "mock"
+    updated["normalization_provider"] = "mock"
 
     with client:
-        response = client.put("/internal/settings", json=invalid)
+        response = client.put("/internal/settings", json=updated)
 
-    assert response.status_code == 422
-    assert components.server_settings_store.get() == before
+    assert response.status_code == 200
+    assert components.server_settings_store.get() == updated
+    assert application.state.moonli_settings.image_provider == "google"
+    restarted = build_components(settings)
+    assert restarted.settings.image_provider == "google"
+    assert restarted.server_settings_store.get()["image_provider"] == "mock"
 
 
 def test_updater_catalog_uses_separate_token_and_verified_checksum(tmp_path) -> None:

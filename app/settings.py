@@ -208,12 +208,6 @@ class Settings:
                 or self.normalization_provider == "mock"
             ):
                 raise ValueError("Mock providers are forbidden in production")
-            if (
-                not self.google_image_model
-                or not self.google_transcription_model
-                or not self.google_normalization_model
-            ):
-                raise ValueError("Google provider models are required in production")
             if any(key.startswith("dev-") for key in self.api_keys):
                 raise ValueError("Development API keys are forbidden in production")
             verifier_exists = (self.data_dir / "operator-auth.sqlite3").exists()

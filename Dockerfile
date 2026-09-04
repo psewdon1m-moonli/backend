@@ -11,6 +11,7 @@ COPY requirements.lock /app/requirements.lock
 COPY README.md /app/README.md
 COPY app /app/app
 COPY config /app/config
+COPY integrations /app/integrations
 
 RUN pip install --no-cache-dir --require-hashes -r /app/requirements.lock && \
     useradd --create-home --uid 10001 moonli && \

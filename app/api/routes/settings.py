@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Request, Response
 
 from app.api.errors import MoonliError
-from app.composition import apply_runtime_configuration
 
 router = APIRouter(prefix="/internal/settings", include_in_schema=False)
 
@@ -27,12 +26,9 @@ def update_settings(
     try:
         store = request.app.state.server_settings_store
         validated = store.validate(payload)
-        store.candidate_settings(validated).validate()
         stored = store.set(validated)
-        stored = apply_runtime_configuration(request.app)
     except (TypeError, ValueError) as exc:
         raise MoonliError("INVALID_SETTINGS", str(exc), 422) from exc
-    effective = request.app.state.moonli_settings
     request.app.state.audit_store.append(
         action="settings.update",
         outcome="success",
@@ -41,9 +37,9 @@ def update_settings(
         target_id="server-settings",
         request_id=getattr(request.state, "request_id", None),
         context={
-            "image_provider": effective.image_provider,
-            "transcription_provider": effective.transcription_provider,
-            "normalization_provider": effective.normalization_provider,
+            "image_provider": stored["image_provider"],
+            "transcription_provider": stored["transcription_provider"],
+            "normalization_provider": stored["normalization_provider"],
         },
     )
     response.headers["Cache-Control"] = "no-store"

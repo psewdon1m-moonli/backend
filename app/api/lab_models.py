@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.api.models import PipelineTag
+from app.api.models import PipelineTag, ProcessedPipelineTag
 
 ProviderName = Literal["mock", "google"]
 
@@ -14,7 +14,7 @@ class LabModel(BaseModel):
 
 
 class PromptLabRequest(LabModel):
-    pipeline: PipelineTag
+    pipeline: ProcessedPipelineTag
     text: str = Field(min_length=1, max_length=12000)
     prompt_template: str | None = Field(default=None, max_length=30000)
 
@@ -49,7 +49,7 @@ class PromptNormalizationLabRequest(GoogleOptions):
 
 
 class ImageLabRequest(GoogleOptions):
-    pipeline: PipelineTag
+    pipeline: ProcessedPipelineTag
     provider: ProviderName = "mock"
     prompt: str = Field(min_length=1, max_length=50000)
     attempt: int = Field(default=1, ge=1, le=5)
@@ -63,17 +63,17 @@ class ImageLabRequest(GoogleOptions):
 
 
 class PaletteLabOptions(LabModel):
-    pipeline: PipelineTag
+    pipeline: ProcessedPipelineTag
     snap_distance: float = Field(default=12, ge=0, le=100)
 
 
 class PaletteQuantizationLabOptions(LabModel):
-    pipeline: PipelineTag
+    pipeline: ProcessedPipelineTag
     cleanup_passes: int = Field(default=1, ge=0, le=3)
 
 
 class VectorLabOptions(LabModel):
-    pipeline: PipelineTag
+    pipeline: ProcessedPipelineTag
 
 
 class PipelineLabOptions(GoogleOptions):

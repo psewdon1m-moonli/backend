@@ -5,6 +5,18 @@ projects are `main_table_script/Архив/MonliProj/` and `android app/`.
 
 ## TouchDesigner / Table 1
 
+The two ready-to-paste `pipeline-3` replacements are available at
+`integrations/touchdesigner/pipeline3_transcription.py` and
+`integrations/touchdesigner/pipeline3_generation.py`. The Production → Pipeline 3
+card also exposes both complete HTTP contracts and both scripts in a collapsed
+integration kit with copy/download actions. The transcription script preserves the
+audio trigger and writes only normalized text to `op('../answer')`. The generation
+script preserves `op('answer')`, `index += 1`, both `sfx_button` pulses, both `/queue`
+water commands, `generated/image_1.jpg` through `image_3.jpg`, and the three matching
+Movie File In TOP reloads. Both scripts reuse `.moonli/device_id.txt`; each logical
+operation gets a fresh UUID. The Google key and image system instruction live only on
+the server.
+
 Treat `main_table_script/Архив/MonliProj/Player.toe` as the canonical runtime after a
 manual operator confirms that it is the installation entry point. Stop editing the
 parallel `atelier_*`, `test.*`, `CrashAutoSave.*`, and `Backup/*.toe` copies.
@@ -89,7 +101,7 @@ On cancellation, cancel the OkHttp call and remove only the local staging file. 
 timeout where the server may have completed, retry with the original idempotency key so
 the stored ZIP is returned without another paid generation.
 
-The two tags are request routing values, not app identities or credential roles. Both
-`td-*` and `aa-*` devices may call either pipeline. The backend permits the same valid
-credential to call either tag; using separate per-device credentials is still
+The three tags are request routing values, not app identities or credential roles. Both
+`td-*` and `aa-*` devices may call any pipeline. The backend permits the same valid
+credential to call any tag; using separate per-device credentials is still
 recommended because a client-generated identifier is not an authentication secret.

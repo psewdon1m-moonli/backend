@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="dark">
   <title>Moonli</title>
   <link rel="icon" type="image/png" href="/web/assets/halftone-moon-alpha.png?v=20260903-10">
-  <link rel="stylesheet" href="/web/styles.css?v=20260904-13">
-  <script src="/web/app.js?v=20260904-13" defer></script>
+  <link rel="stylesheet" href="/web/styles.css?v=20260904-18">
+  <script src="/web/app.js?v=20260904-18" defer></script>
 </head>
 <body>
   <div id="noticeStack" class="notice-stack" aria-live="polite" aria-atomic="true"></div>
@@ -158,6 +158,7 @@
                     <select id="pipelineTag" name="pipeline">
                       <option value="pipeline-1">pipeline-1 · PNG</option>
                       <option value="pipeline-2">pipeline-2 · ZIP / 12 layers</option>
+                      <option value="pipeline-3">pipeline-3 · ZIP / 3 JPEG</option>
                     </select>
                   </label>
                 </div>
@@ -175,7 +176,7 @@
                 </div>
                 <div class="action-row">
                   <button id="runPipeline" class="primary-action" type="submit">Run Full Pipeline</button>
-                  <span class="form-hint">The result is a ZIP containing every applicable stage artifact; provider settings come from Configuration.</span>
+                  <span class="form-hint">The result is a ZIP containing every applicable stage artifact. All pipelines use only the Test Calls configuration and temporary tab key.</span>
                 </div>
               </form>
             </article>
@@ -187,6 +188,72 @@
             <article class="card span-2 titled-card">
               <header class="card-header no-ordinal"><h2>Result</h2><span class="drag-dots" aria-hidden="true"></span></header>
               <div id="pipelineResult" class="card-body result-panel empty-state">The result will appear after the run.</div>
+            </article>
+          </div>
+
+          <div class="content-grid">
+            <article class="card span-4 titled-card">
+              <header class="card-header"><span>01</span><h2>Google connection</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="googleSettingsForm" class="card-body form-layout">
+                <div class="settings-group">
+                  <h3>Full run defaults and Google endpoint</h3>
+                  <p>The full run uses these providers and parameters. The backend stores non-secret values in the persistent Docker volume.</p>
+                  <div class="form-grid cols-3">
+                    <label class="field"><span>Image provider</span>
+                      <select id="settingsImageProvider"><option value="mock">Mock</option><option value="google">Google</option></select>
+                    </label>
+                    <label class="field"><span>Transcription provider</span>
+                      <select id="settingsTranscriptionProvider"><option value="mock">Mock</option><option value="google">Google</option></select>
+                    </label>
+                    <label class="field"><span>Normalization provider</span>
+                      <select id="settingsNormalizationProvider"><option value="google">Google</option><option value="mock">Mock / pass-through</option></select>
+                    </label>
+                    <label class="field"><span>Quantization cleanup passes</span>
+                      <input id="settingsCleanupPasses" type="number" min="0" max="3" step="1">
+                    </label>
+                    <label class="field"><span>Generation attempts</span>
+                      <input id="settingsGenerationAttempts" type="number" min="1" max="5" step="1">
+                    </label>
+                  </div>
+                  <div class="form-grid cols-2">
+                    <label class="field"><span>Base URL</span><input id="googleBaseUrl" type="url"></label>
+                    <label class="field"><span>Timeout, seconds</span><input id="googleTimeout" type="number" min="1" max="300"></label>
+                    <label class="field"><span>Image model</span><input id="googleImageModel" type="text" placeholder="model-name"></label>
+                    <label class="field"><span>Transcription model</span><input id="googleTranscriptionModel" type="text" placeholder="model-name"></label>
+                    <label class="field"><span>Normalization model</span><input id="googleNormalizationModel" type="text" placeholder="model-name"></label>
+                    <label class="field"><span>Aspect ratio</span><select id="googleAspectRatio"><option>1:1</option><option>2:3</option><option>3:2</option><option>3:4</option><option>4:3</option><option>9:16</option><option>16:9</option></select></label>
+                    <label class="field"><span>Image size</span><select id="googleImageSize"><option>1K</option><option>2K</option><option>4K</option></select></label>
+                  </div>
+                  <div class="action-row"><button class="primary-action" type="submit">Apply Settings</button></div>
+                </div>
+                <div class="settings-group">
+                  <h3>Test Google API Key</h3>
+                  <p>Used by test stages only. It is never written to localStorage and is cleared on sign-out.</p>
+                  <div class="secret-status-row">
+                    <span id="googleKeyStatus">No key set for this tab</span>
+                    <span id="googleKeyIndicator" class="status-square"></span>
+                  </div>
+                  <div class="action-row">
+                    <button id="openGoogleKeyDialog" type="button">Enter Google API Key</button>
+                    <button id="clearGoogleKey" type="button">Clear Tab Key</button>
+                  </div>
+                </div>
+              </form>
+            </article>
+
+            <article class="card span-4 titled-card">
+              <header class="card-header"><span>02</span><h2>Prompt templates</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="templatesForm" class="card-body form-layout">
+                <p>Available placeholders: <code id="templateFields">—</code></p>
+                <div class="template-grid">
+                  <label class="field"><span>pipeline-1 template</span><textarea id="templatePipeline1" rows="18"></textarea></label>
+                  <label class="field"><span>pipeline-2 template</span><textarea id="templatePipeline2" rows="18"></textarea></label>
+                </div>
+                <div class="action-row">
+                  <button class="primary-action" type="submit">Apply Templates</button>
+                  <button id="resetTemplates" type="button">Reset to Defaults</button>
+                </div>
+              </form>
             </article>
           </div>
 
@@ -310,71 +377,31 @@
         <section id="view-configuration" class="view" aria-labelledby="pageTitle">
           <div class="content-grid">
             <article class="card span-4 titled-card">
-              <header class="card-header"><span>01</span><h2>Google connection</h2><span class="drag-dots" aria-hidden="true"></span></header>
-              <form id="googleSettingsForm" class="card-body form-layout">
+              <header class="card-header"><span>01</span><h2>Routing</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="routingSettingsForm" class="card-body form-layout">
                 <div class="settings-group">
-                  <h3>Full run defaults and Google endpoint</h3>
-                  <p>The full run uses these providers and parameters. The backend stores non-secret values in the persistent Docker volume.</p>
-                  <div class="form-grid cols-3">
-                    <label class="field"><span>Image provider</span>
-                      <select id="settingsImageProvider"><option value="mock">Mock</option><option value="google">Google</option></select>
-                    </label>
-                    <label class="field"><span>Transcription provider</span>
-                      <select id="settingsTranscriptionProvider"><option value="mock">Mock</option><option value="google">Google</option></select>
-                    </label>
-                    <label class="field"><span>Normalization provider</span>
-                      <select id="settingsNormalizationProvider"><option value="google">Google</option><option value="mock">Mock / pass-through</option></select>
-                    </label>
-                    <label class="field"><span>Quantization cleanup passes</span>
-                      <input id="settingsCleanupPasses" type="number" min="0" max="3" step="1">
-                    </label>
-                    <label class="field"><span>Generation attempts</span>
-                      <input id="settingsGenerationAttempts" type="number" min="1" max="5" step="1">
-                    </label>
+                  <h3>Google API proxy route</h3>
+                  <p>Route Google transcription, normalization, image generation, and API-key validation through the private Xray sidecar. The VLESS connection is stored only in the protected secrets volume and is never returned to the browser.</p>
+                  <label class="check-field routing-toggle">
+                    <input id="routingProxyEnabled" type="checkbox">
+                    <span>Use VLESS proxy for Google API requests</span>
+                  </label>
+                  <div id="routingStatus" class="secret-status-row">
+                    <span id="routingStatusText">Routing status has not been loaded.</span>
+                    <span id="routingStatusIndicator" class="status-square" aria-hidden="true"></span>
                   </div>
-                  <div class="form-grid cols-2">
-                    <label class="field"><span>Base URL</span><input id="googleBaseUrl" type="url"></label>
-                    <label class="field"><span>Timeout, seconds</span><input id="googleTimeout" type="number" min="1" max="300"></label>
-                    <label class="field"><span>Image model</span><input id="googleImageModel" type="text" placeholder="model-name"></label>
-                    <label class="field"><span>Transcription model</span><input id="googleTranscriptionModel" type="text" placeholder="model-name"></label>
-                    <label class="field"><span>Normalization model</span><input id="googleNormalizationModel" type="text" placeholder="model-name"></label>
-                    <label class="field"><span>Aspect ratio</span><select id="googleAspectRatio"><option>1:1</option><option>2:3</option><option>3:2</option><option>3:4</option><option>4:3</option><option>9:16</option><option>16:9</option></select></label>
-                    <label class="field"><span>Image size</span><select id="googleImageSize"><option>1K</option><option>2K</option><option>4K</option></select></label>
-                  </div>
-                  <div class="action-row"><button class="primary-action" type="submit">Apply Settings</button></div>
-                </div>
-                <div class="settings-group">
-                  <h3>Test Google API Key</h3>
-                  <p>Used by test stages only. It is never written to localStorage and is cleared on sign-out.</p>
-                  <div class="secret-status-row">
-                    <span id="googleKeyStatus">No key set for this tab</span>
-                    <span id="googleKeyIndicator" class="status-square"></span>
-                  </div>
-                  <div class="action-row">
-                    <button id="openGoogleKeyDialog" type="button">Enter Google API Key</button>
-                    <button id="clearGoogleKey" type="button">Clear Tab Key</button>
-                  </div>
+                  <label class="field">
+                    <span>VLESS connection</span>
+                    <input id="routingVlessUri" type="password" autocomplete="off" spellcheck="false" placeholder="vless://… · leave blank to keep the saved connection">
+                  </label>
+                  <p class="form-hint">Saving an empty field keeps the current connection. Disable the switch to return Google requests to direct routing.</p>
+                  <div class="action-row"><button id="saveRoutingSettings" class="primary-action" type="submit">Save Settings</button></div>
                 </div>
               </form>
             </article>
 
             <article class="card span-4 titled-card">
-              <header class="card-header"><span>02</span><h2>Prompt templates</h2><span class="drag-dots" aria-hidden="true"></span></header>
-              <form id="templatesForm" class="card-body form-layout">
-                <p>Available placeholders: <code id="templateFields">—</code></p>
-                <div class="template-grid">
-                  <label class="field"><span>pipeline-1 template</span><textarea id="templatePipeline1" rows="18"></textarea></label>
-                  <label class="field"><span>pipeline-2 template</span><textarea id="templatePipeline2" rows="18"></textarea></label>
-                </div>
-                <div class="action-row">
-                  <button class="primary-action" type="submit">Apply Templates</button>
-                  <button id="resetTemplates" type="button">Reset to Defaults</button>
-                </div>
-              </form>
-            </article>
-
-            <article class="card span-4 titled-card">
-              <header class="card-header"><span>03</span><h2>Appearance</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <header class="card-header"><span>02</span><h2>Appearance</h2><span class="drag-dots" aria-hidden="true"></span></header>
               <div class="card-body settings-group">
                 <h3>Accent color</h3>
                 <p>The preview updates immediately; the change is saved only when you select Apply.</p>
@@ -389,7 +416,7 @@
             </article>
 
             <article class="card span-4 titled-card">
-              <header class="card-header"><span>04</span><h2>Security</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <header class="card-header"><span>03</span><h2>Security</h2><span class="drag-dots" aria-hidden="true"></span></header>
               <form id="rotateAccessKeyForm" class="card-body form-layout">
                 <p class="form-hint">Changing the operator Access Key revokes every browser session. Android and TouchDesigner client API keys are not changed.</p>
                 <div class="form-grid cols-2">
@@ -401,7 +428,7 @@
             </article>
 
             <article class="card span-4 titled-card">
-              <header class="card-header"><span>05</span><h2>Backup and recovery</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <header class="card-header"><span>04</span><h2>Backup and recovery</h2><span class="drag-dots" aria-hidden="true"></span></header>
               <div class="card-body form-layout">
                 <p class="form-hint">The logical ZIP excludes Google, client and updater keys, browser sessions, and .env. A pre-restore snapshot is created automatically before restore.</p>
                 <div class="action-row"><button id="createBackup" class="primary-action" type="button">Create and Download Snapshot</button></div>
@@ -415,7 +442,7 @@
             </article>
 
             <article class="card span-4 titled-card">
-              <header class="card-header"><span>06</span><h2>Updates</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <header class="card-header"><span>05</span><h2>Updates</h2><span class="drag-dots" aria-hidden="true"></span></header>
               <div class="card-body form-layout">
                 <p class="form-hint">Download an operator snapshot before installation. The local host updater uses a Unix socket and enforces checksums, an immutable image digest, server backup, health checks, and rollback. One-click updates are safe for image-only releases; Compose topology changes require an explicit repair or install.</p>
                 <div class="action-row">
@@ -431,41 +458,7 @@
         </section>
 
         <section id="view-production" class="view" aria-labelledby="pageTitle">
-          <div class="content-grid">
-            <article class="card span-4 titled-card">
-              <header class="card-header"><span>01</span><h2>Production Google API Key</h2><span class="drag-dots" aria-hidden="true"></span></header>
-              <form id="productionGoogleKeyForm" class="card-body form-layout">
-                <p class="form-hint">The key is sent to the backend over a protected request and stored in a dedicated Docker volume. It is never written to .env, localStorage, the activity log, or returned to the browser.</p>
-                <div id="productionKeyStatusRow" class="secret-status-row">
-                  <span id="productionKeyStatus">Production key is not configured</span>
-                  <span id="productionKeyIndicator" class="status-square" aria-hidden="true"></span>
-                </div>
-                <div class="form-grid cols-2">
-                  <label class="field"><span>New Google API Key</span>
-                    <input id="productionGoogleKey" type="password" autocomplete="new-password" placeholder="Enter a new key to save or replace the current key">
-                  </label>
-                  <div class="static-field"><span>Storage</span><strong id="productionKeyStorage">Docker volume</strong></div>
-                </div>
-                <div class="action-row">
-                  <button id="saveProductionGoogleKey" class="primary-action" type="submit">Save Production Key</button>
-                  <button id="clearProductionGoogleKey" type="button">Delete Production Key</button>
-                  <span class="form-hint">The backend validates the key with Google before saving it. The field is cleared afterward; only configured status remains visible.</span>
-                </div>
-              </form>
-            </article>
-
-            <article class="card span-4 titled-card">
-              <header class="card-header"><span>02</span><h2>Production API requests · 2 client + 4 internal</h2><span class="drag-dots" aria-hidden="true"></span></header>
-              <div class="card-body production-request-grid">
-                <label class="field"><span>01 · Client · text input</span><textarea id="productionRequestClientText" class="production-request" rows="18" readonly></textarea></label>
-                <label class="field"><span>02 · Client · audio input</span><textarea id="productionRequestClientAudio" class="production-request" rows="18" readonly></textarea></label>
-                <label class="field"><span>03 · Google · transcription</span><textarea id="productionRequestTranscription" class="production-request" rows="22" readonly></textarea></label>
-                <label class="field"><span>04 · Google · prompt normalization</span><textarea id="productionRequestNormalization" class="production-request" rows="22" readonly></textarea></label>
-                <label class="field"><span>05 · Google · image · pipeline-1</span><textarea id="productionRequestImageP1" class="production-request" rows="28" readonly></textarea></label>
-                <label class="field"><span>06 · Google · image · pipeline-2</span><textarea id="productionRequestImageP2" class="production-request" rows="28" readonly></textarea></label>
-              </div>
-            </article>
-          </div>
+          <div id="productionPipelines" class="production-pipeline-stack" aria-live="polite"></div>
         </section>
 
         <section id="view-devices" class="view" aria-labelledby="pageTitle">
@@ -547,8 +540,8 @@
 
               <section id="docs-overview" class="documentation-section">
                 <h3><span>01</span> System overview</h3>
-                <p>Moonli owns the complete tagged image-generation state machine. A client submits one authenticated request to <code>POST /v1/generate</code>, explicitly selects <code>pipeline-1</code> or <code>pipeline-2</code>, and receives the final artifact in the same HTTP response. The client type never selects or restricts the pipeline.</p>
-                <div class="documentation-callout"><strong>Production boundary.</strong> Nginx is the only public listener. Public traffic uses the configured HTTPS domain. The application port, databases, metrics, storage paths, legacy endpoints, test routes, updater catalog, and restore routes are not public.</div>
+                <p>Moonli owns three tagged generation profiles. <code>pipeline-1</code> and <code>pipeline-2</code> complete the processed image flow in one <code>POST /v1/generate</code> request. <code>pipeline-3</code> mirrors the production TouchDesigner flow: audio is transcribed and normalized by <code>POST /v1/normalize</code>, then the returned text is sent to <code>POST /v1/generate</code> for three independent JPEG variants. The client type never selects or restricts the pipeline.</p>
+                <div class="documentation-callout"><strong>Production boundary.</strong> Nginx is the only public listener. Public traffic uses the configured HTTPS domain. Test Calls are available in production only through the authenticated operator session and require CSRF protection for mutations. The application port, databases, metrics, storage paths, legacy endpoints, updater catalog, and restore routes are not public.</div>
                 <p>Operator authentication, client authentication, device identity, and pipeline routing are separate concerns:</p>
                 <ul>
                   <li>The operator signs in with an operator Access Key and receives an HttpOnly, SameSite browser session.</li>
@@ -562,18 +555,18 @@
                 <h3><span>02</span> Quick start</h3>
                 <ol>
                   <li>Sign in with the operator Access Key.</li>
-                  <li>Open <strong>Configuration</strong>, select the Google providers and enter the exact enabled model names for transcription, normalization, and image generation.</li>
-                  <li>Review the prompt templates for both pipelines and save the settings.</li>
-                  <li>Open <strong>Production</strong>, enter the Google API key, and save it. The backend verifies the key before persisting it.</li>
+                  <li>Open <strong>Test Calls</strong>, select the test providers and enter the exact enabled model names for transcription, normalization, and image generation.</li>
+                  <li>Enter the temporary test Google key, review the processed-pipeline prompt templates, and save the non-secret test settings.</li>
+                  <li>Open <strong>Production</strong> and configure each pipeline independently: Google key, enabled models, provider calls, and instructions. The backend verifies every key before persisting it.</li>
                   <li>Use <strong>Test Calls</strong> to exercise individual stages or download a full-run artifact archive.</li>
                   <li>Configure each real client with the HTTPS base domain and its Bearer credential. Generate and persist its device identifier before the first call.</li>
                 </ol>
-                <p>For local mock verification, the development stack can complete every processing stage without Google. Mock providers are rejected when the application runs in production mode.</p>
+                <p>Mock providers can complete every test stage without Google, including through the authenticated Test Calls surface in a production deployment. Production client pipelines never use those mock selections.</p>
               </section>
 
               <section id="docs-client-api" class="documentation-section">
                 <h3><span>03</span> Production client API</h3>
-                <p>Both text and audio use the same endpoint. Every request requires a Bearer credential, a stable device identifier, and an idempotency key. Use a UUID for idempotency and reuse it only when retrying the same logical request.</p>
+                <p>Every request requires a Bearer credential, a stable device identifier, and an idempotency key. Use a fresh UUID for each logical operation and reuse it only when retrying that exact operation. Pipelines 1 and 2 accept text or audio at <code>/v1/generate</code>; pipeline 3 uses <code>/v1/normalize</code> for audio and <code>/v1/generate</code> for its normalized text.</p>
                 <h4>Text input</h4>
                 <pre><code>POST /v1/generate HTTP/1.1
 Host: moonli.example.com
@@ -612,7 +605,7 @@ audio=&lt;binary audio file&gt;</code></pre>
                     <tr><td>Android app</td><td><code>aa-</code> + 8 random digits</td><td><code>aa-26093758</code></td></tr>
                   </tbody>
                 </table>
-                <p>The server registers a valid identifier on first use and counts every production API attempt. The Devices page shows its type, registration time, lifetime request count, and status. Blocking a device rejects future requests with <code>DEVICE_BLOCKED</code> before the pipeline starts; unblocking restores access. Either prefix may call either pipeline.</p>
+                <p>The server registers a valid identifier on first use and counts every production API attempt. The Devices page shows its type, registration time, lifetime request count, and status. Blocking a device rejects future requests with <code>DEVICE_BLOCKED</code> before the pipeline starts; unblocking restores access. Either prefix may call any pipeline. TouchDesigner stores one device identifier in <code>.moonli/device_id.txt</code> and reuses it for both pipeline-3 operations.</p>
                 <p>Deleting application data may generate a new identity, so client storage should survive ordinary restarts and updates. The identifier does not replace the Bearer credential and must not be treated as authentication.</p>
               </section>
 
@@ -631,13 +624,13 @@ audio=&lt;binary audio file&gt;</code></pre>
                     <tr><td>8 · Segmentation</td><td>Creates the ordered fixed-slot layer package for layered output.</td><td>SVG/PNG → layer ZIP</td></tr>
                   </tbody>
                 </table>
-                <p><code>pipeline-1</code> publishes the validated raster PNG. <code>pipeline-2</code> continues through vectorization and segmentation and publishes a twelve-slot layered package. The Test Calls page exposes every stage independently and lets an operator copy or download its output and pass it into the next stage.</p>
+                <p><code>pipeline-1</code> publishes the validated raster PNG. <code>pipeline-2</code> continues through vectorization and segmentation and publishes a twelve-slot layered package. <code>pipeline-3</code> intentionally stops after generation: its first operation performs transcription and normalization, while its second operation launches three independent image generations without quantization, palette validation, vectorization, or segmentation. The Test Calls page exposes the processed stages independently and lets an operator copy or download its output and pass it into the next stage.</p>
               </section>
 
               <section id="docs-artifacts" class="documentation-section">
                 <h3><span>06</span> Results and artifacts</h3>
-                <p><strong>pipeline-1</strong> returns <code>Content-Type: image/png</code> with the filename <code>moonli.png</code>. <strong>pipeline-2</strong> returns <code>application/vnd.moonli.layers+zip</code> with the filename <code>moonli-layers.zip</code>.</p>
-                <p>Successful production responses include <code>X-Moonli-Run-Id</code>, <code>X-Moonli-Result-SHA256</code>, <code>X-Moonli-Device-Id</code>, and <code>X-Idempotent-Replay</code>. Clients must stream the body to a staging file, verify the SHA-256 response digest, validate the expected media type, and atomically publish the completed file.</p>
+                <p><strong>pipeline-1</strong> returns <code>Content-Type: image/png</code> with the filename <code>moonli.png</code>. <strong>pipeline-2</strong> returns <code>application/vnd.moonli.layers+zip</code> with the filename <code>moonli-layers.zip</code>. <strong>pipeline-3 normalization</strong> returns only the normalized UTF-8 text. <strong>pipeline-3 generation</strong> returns <code>application/zip</code> containing exactly <code>image_1.jpg</code>, <code>image_2.jpg</code>, and <code>image_3.jpg</code>; every member is a 1024×1024 RGB JPEG.</p>
+                <p>Successful pipeline-1 and pipeline-2 responses include <code>X-Moonli-Run-Id</code>, <code>X-Moonli-Result-SHA256</code>, <code>X-Moonli-Device-Id</code>, and <code>X-Idempotent-Replay</code>. Clients must stream the body to a staging file, verify the SHA-256 response digest, validate the expected media type, and atomically publish the completed file. The pipeline-3 TouchDesigner integration validates the in-memory ZIP, JPEG dimensions, names, and uniqueness before atomically replacing the three files.</p>
                 <p>A <code>pipeline-2</code> package contains:</p>
                 <pre><code>manifest.json
 composite.png
@@ -645,13 +638,14 @@ layers/00.png
 ...
 layers/11.png</code></pre>
                 <p>Each layer is a full-canvas RGBA PNG. Transparent pixels are exactly <code>(0,0,0,0)</code>; visible pixels are fully opaque and use exactly the assigned slot color. Unused slots remain present as transparent images with <code>used:false</code>. The manifest records contract version, run ID, canvas, palette order, member paths, usage flags, and SHA-256 values. The backend verifies ZIP safety, member checksums, dimensions, colors, alpha, ordering, and pixel-perfect recomposition before publishing.</p>
-                <p>The operator full-run download is a diagnostic archive rather than the production response. It contains the applicable original text or audio, normalized text, technical prompt, generated PNG, quantized PNG, validation report, vector output, and layer artifacts, together with the selected pipeline and input type.</p>
+                <p>The operator full-run download is a diagnostic archive rather than the production response. Pipelines 1 and 2 contain the applicable original text or audio, normalized text, technical prompt, generated PNG, quantized PNG, validation report, vector output, and layer artifacts. Pipeline 3 contains the original text or audio, optional transcription, normalized text, three JPEG variants, the exact production image ZIP, and an execution trace; skipped stages are explicitly marked <code>not_applicable</code>. Every archive records the selected pipeline and input type.</p>
               </section>
 
               <section id="docs-google" class="documentation-section">
                 <h3><span>07</span> Google providers and prompt templates</h3>
-                <p>The persistent Google API key is entered on the Production page. It is verified against Google, written atomically to the dedicated secrets volume, and never placed in <code>.env</code>, localStorage, logs, API responses, logical backups, or release files. The browser receives only configured status. Deleting the key disables Google-backed generation until a replacement is saved.</p>
-                <p>The key entered from Configuration is intentionally temporary: it exists only in the current tab's memory and is used by individual test-stage requests. Refreshing or signing out clears it.</p>
+                <p>Each pipeline has its own persistent Google API key on the Production page. Keys are verified against Google, written atomically to pipeline-specific files in the dedicated secrets volume, and never placed in <code>.env</code>, localStorage, logs, API responses, logical backups, or release files. The browser receives only configured status. Deleting a key disables Google-backed calls for that pipeline until a replacement is saved.</p>
+                <p>If Google rejects the server region, Configuration → Routing can send every Google provider request through the internal Xray sidecar. Paste a VLESS Reality/TCP/Vision connection, enable the switch, and save. The secret is stored only in <code>moonli_secrets</code>; the browser can see configured status but cannot retrieve the value. Disabling routing restores direct Google connections and retains the private VLESS value.</p>
+                <p>The key entered from Test Calls is intentionally temporary: it exists only in the current tab's memory and is used by individual stages and Full Run for all three pipelines. Test endpoints never fall back to a Production key or Production pipeline configuration. Refreshing or signing out clears it.</p>
                 <p>Prompt normalization is a separate provider step. Its output should be a short English visual subject such as <code>yellow car</code>, <code>cute penguin icon</code>, or <code>doge on the ball</code>—not a transcript, greeting, or technical palette prompt. Prompt Builder then applies the selected pipeline template. Available placeholders are listed beside the template editor; both templates must be non-empty before saving.</p>
               </section>
 
@@ -659,9 +653,9 @@ layers/11.png</code></pre>
                 <h3><span>08</span> Operator console</h3>
                 <ul>
                   <li><strong>Overview</strong> reports CPU, RAM, disk, uptime, request counts, token counts, and a 24-hour usage chart.</li>
-                  <li><strong>Test Calls</strong> runs the complete diagnostic archive flow or one isolated processing stage.</li>
-                  <li><strong>Configuration</strong> controls providers, model names, endpoint, attempts, cleanup, templates, appearance, security, backup, and updates.</li>
-                  <li><strong>Production</strong> stores the persistent Google key and shows the exact two client and four provider requests used by the service.</li>
+                  <li><strong>Test Calls</strong> owns the temporary Google connection, prompt templates, complete diagnostic archive flow for all three pipelines, and isolated processing stages. It never consumes Production configuration or keys. An authenticated operator may use either mock or Google test providers in production.</li>
+                  <li><strong>Configuration</strong> controls private Google API routing, appearance, security, backup, and updates.</li>
+                  <li><strong>Production</strong> contains three independent pipeline sections for persistent Google keys, model selection, provider configuration, and instructions. Pipeline 3 also provides a collapsed integration kit containing both complete client requests and both ready-to-paste TouchDesigner scripts.</li>
                   <li><strong>Devices</strong> lists registered installations and blocks or unblocks API access.</li>
                   <li><strong>Activity</strong> contains a redacted, tab-local request log and the retained server audit stream.</li>
                 </ul>
@@ -671,7 +665,7 @@ layers/11.png</code></pre>
               <section id="docs-backup" class="documentation-section">
                 <h3><span>09</span> Backup, restore, and retention</h3>
                 <p>A logical snapshot is a ZIP using format <code>moonli-logical-backup</code>, schema version 2, with a manifest and SHA-256 for every member. It includes runs, usage statistics, registered devices and block state, non-secret settings, the operator verifier, retained audit events, and referenced completed artifacts.</p>
-                <p>It deliberately excludes the Google key, client and updater credentials, cookies, sessions, <code>.env</code>, staging files, and release files. Back up the secrets volume separately using an encrypted host-level disaster-recovery procedure.</p>
+                <p>It deliberately excludes Google keys, optional VLESS routing state, client and updater credentials, cookies, sessions, <code>.env</code>, staging files, and release files. Back up the secrets volume separately using an encrypted host-level disaster-recovery procedure.</p>
                 <p>Before mutation, restore checks the 128 MiB compressed and 256 MiB uncompressed limits, compression ratios, member count, duplicate names, paths, links, schema, and all digests. It creates a pre-restore snapshot and reapplies it if restore fails. The service keeps the five newest restore points. A successful restore revokes browser sessions, so sign in again afterward.</p>
                 <p>Retention baselines are 10,000 audit events / 30 days / 64 MiB estimated payload, up to 1,000,000 usage rows / 365 days, and three rotated container log files of 10 MiB each.</p>
               </section>
@@ -683,7 +677,8 @@ layers/11.png</code></pre>
                   <li>Install a trusted certificate and private key at the configured Nginx mount paths.</li>
                   <li>Create independent random operator, client, catalog, restore, and updater credentials. Never copy a workstation <code>.env</code> to the server.</li>
                   <li>Configure the exact hostname, allowed hosts, Google providers, and enabled model names.</li>
-                  <li>Validate Compose, install the stack, then save the Google API key from the authenticated Production page.</li>
+                  <li>Validate Compose, install the stack, then save the required per-pipeline Google API keys and models from the authenticated Production page.</li>
+                  <li>The internal <code>vless-proxy</code> service has no host port. Configure it from Configuration → Routing only when the server's direct region cannot reach Google.</li>
                 </ol>
                 <p>Do not expose application ports 8000 or 18000. Port 18000 is loopback-only for readiness and local updater operations. Normal domain TLS is the intended boundary; VPN and mTLS are not required. Nginx allows the UI, health endpoint, client generation endpoint, and allow-listed operator routes. Unknown hosts receive 421 and concealed routes return 404.</p>
                 <pre><code>docker compose --env-file /opt/moonli/.env \
@@ -734,9 +729,10 @@ curl --fail https://moonli.example.com/health</code></pre>
                 <ul>
                   <li>Add one external, diffable HTTP client module beside the canonical <code>Player.toe</code>.</li>
                   <li>Persist a securely randomized <code>td-########</code> identifier in installation-local configuration.</li>
-                  <li>Send one JSON or multipart <code>POST /v1/generate</code>, use a 300-second timeout, and reuse the UUID idempotency key after transport failure.</li>
-                  <li>Accept only the expected media type, verify <code>X-Moonli-Result-SHA256</code>, decode to a staging file, and atomically publish the result.</li>
-                  <li>Remove client knowledge of transcription, palettes, vectorization, segmentation, legacy jobs, <code>/data</code>, and <code>/proxy/image</code>.</li>
+                  <li>For pipeline 3, send audio to <code>/v1/normalize</code>, then send the returned normalized text from <code>op('answer')</code> to <code>/v1/generate</code>.</li>
+                  <li>Use the same persisted device ID for both calls, a fresh UUID for each operation, a 300-second timeout, and the same UUID only when retrying that operation.</li>
+                  <li>Validate the in-memory generation ZIP, atomically save <code>image_1.jpg</code> through <code>image_3.jpg</code>, and reload all three matching Movie File In TOPs.</li>
+                  <li>Preserve the production DAT's index increment, two sound pulses, and two water-queue commands.</li>
                 </ul>
                 <h4>Android</h4>
                 <ul>
@@ -746,7 +742,7 @@ curl --fail https://moonli.example.com/health</code></pre>
                   <li>For layer ZIPs, enforce Zip Slip defenses, size/member limits, CRC, manifest schema, checksums, dimensions, colors, alpha, and safe atomic storage.</li>
                   <li>Load the twelve local layers in manifest order. Do not poll individual backend stages.</li>
                 </ul>
-                <p>Both client types may request either pipeline. Separate per-device credentials remain recommended even though the pipeline and device prefix do not impose authorization roles.</p>
+                <p>Both client types may request any pipeline. Separate per-device credentials remain recommended even though the pipeline and device prefix do not impose authorization roles.</p>
               </section>
             </article>
           </div>

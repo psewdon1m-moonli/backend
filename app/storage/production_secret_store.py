@@ -5,6 +5,8 @@ import threading
 import uuid
 from pathlib import Path
 
+from app.storage.production_pipeline_config import PIPELINE_IDS
+
 
 class ProductionSecretStore:
     """Persist production-only secrets in a mounted runtime directory."""
@@ -18,47 +20,73 @@ class ProductionSecretStore:
     def path(self) -> Path:
         return self._path
 
-    def get_google_api_key(self) -> str:
+    def _pipeline_path(self, pipeline: str | None) -> Path:
+        if pipeline is None:
+            return self._path
+        if pipeline not in PIPELINE_IDS:
+            raise ValueError("Unknown pipeline")
+        return self._root / "google" / pipeline
+
+    def get_google_api_key(self, pipeline: str | None = None) -> str:
+        path = self._pipeline_path(pipeline)
         with self._lock:
             try:
-                value = self._path.read_text(encoding="utf-8").strip()
+                value = path.read_text(encoding="utf-8").strip()
             except FileNotFoundError:
+                if pipeline is not None:
+                    return self.get_google_api_key()
                 return ""
         return value if self._valid(value) else ""
 
-    def set_google_api_key(self, value: str) -> None:
+    def set_google_api_key(self, value: str, pipeline: str | None = None) -> None:
         normalized = value.strip()
         if not self._valid(normalized):
             raise ValueError("Google API key must contain 16-512 non-whitespace characters")
+        path = self._pipeline_path(pipeline)
         with self._lock:
-            self._root.mkdir(parents=True, exist_ok=True)
+            path.parent.mkdir(parents=True, exist_ok=True)
             try:
                 self._root.chmod(0o700)
             except OSError:
                 pass
-            temporary = self._root / f".google-api-key.{uuid.uuid4().hex}.tmp"
+            temporary = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
             try:
                 temporary.write_text(normalized, encoding="utf-8")
                 try:
                     temporary.chmod(0o600)
                 except OSError:
                     pass
-                os.replace(temporary, self._path)
+                os.replace(temporary, path)
             finally:
                 temporary.unlink(missing_ok=True)
 
-    def status(self, fallback: str = "") -> dict[str, object]:
-        stored = self.get_google_api_key()
+    def status(self, fallback: str = "", pipeline: str | None = None) -> dict[str, object]:
+        pipeline_path = self._pipeline_path(pipeline)
+        try:
+            pipeline_value = pipeline_path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            pipeline_value = ""
+        stored = pipeline_value if self._valid(pipeline_value) else ""
+        legacy = self.get_google_api_key() if pipeline is not None else ""
         effective = stored or fallback.strip()
-        source = "volume" if stored else "environment" if effective else None
+        effective = effective or legacy
+        source = (
+            "volume"
+            if stored
+            else "environment"
+            if fallback.strip()
+            else "legacy-volume"
+            if legacy
+            else None
+        )
         return {
             "configured": bool(effective),
             "source": source,
         }
 
-    def clear_google_api_key(self) -> None:
+    def clear_google_api_key(self, pipeline: str | None = None) -> None:
         with self._lock:
-            self._path.unlink(missing_ok=True)
+            self._pipeline_path(pipeline).unlink(missing_ok=True)
 
     @staticmethod
     def _valid(value: str) -> bool:

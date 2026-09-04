@@ -35,13 +35,24 @@ from app.domain.prompts import GenerationPrompt, VisualBrief
 from app.providers.errors import ProviderError
 from app.providers.image_generation.google import GoogleImageGenerator
 from app.providers.image_generation.mock import MockImageGenerator
-from app.providers.prompt_normalization.google import GooglePromptNormalizer
+from app.providers.image_generation.variants import (
+    GoogleImageVariantGenerator,
+    MockImageVariantGenerator,
+)
+from app.providers.prompt_normalization.google import (
+    INSTRUCTION as NORMALIZATION_INSTRUCTION,
+)
+from app.providers.prompt_normalization.google import (
+    GooglePromptNormalizer,
+)
 from app.providers.prompt_normalization.mock import MockPromptNormalizer
+from app.providers.proxy import ProxyUrlSource
 from app.providers.transcription.google import GoogleTranscriber
 from app.providers.transcription.mock import MockTranscriber
 from app.services.generation_service import GenerationService
 from app.services.input_resolver import InputResolver
 from app.services.outputs import LayeredImageOutputBuilder, RuntimeValidator
+from app.services.pipeline3 import Pipeline3Service
 from app.services.processing.layers import LayerProcessor
 from app.services.processing.palette_quantizer import (
     PaletteQuantizationError,
@@ -54,8 +65,12 @@ from app.services.processing.palette_vectorizer import (
     segment_palette_svg,
 )
 from app.services.prompts import PromptBuilder
-from app.services.run_archive import build_run_archive
+from app.services.run_archive import build_pipeline3_run_archive, build_run_archive
 from app.settings import Settings
+from app.storage.production_pipeline_config import (
+    PIPELINE_3_IMAGE_SYSTEM_INSTRUCTION,
+    PIPELINE_3_TRANSCRIPTION_INSTRUCTION,
+)
 
 router = APIRouter(prefix="/internal/test", include_in_schema=False)
 GOOGLE_HOST = re.compile(r"(^|\.)googleapis\.com$", re.IGNORECASE)
@@ -63,17 +78,20 @@ ASPECT_RATIOS = {"1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"}
 IMAGE_SIZES = {"1K", "2K", "4K"}
 
 
+def _routing_proxy(request: Request) -> ProxyUrlSource:
+    store = getattr(request.app.state, "routing_config_store", None)
+    return store.proxy_url if store is not None else None
+
+
 def _authorize(
     request: Request, authorization: str | None, x_api_key: str | None
 ) -> tuple[Settings, str]:
-    settings: Settings = request.app.state.moonli_settings
-    if settings.environment == "production":
-        raise MoonliError("NOT_FOUND", "Not found.", 404)
     operator = request.app.state.operator_auth_store.authenticate_request(
         request,
         require_csrf=request.method not in {"GET", "HEAD", "OPTIONS"},
     )
-    return settings, operator.actor_id
+    test_settings = request.app.state.server_settings_store.effective_settings()
+    return test_settings, operator.actor_id
 
 
 def _google_base_url(requested: str, settings: Settings) -> str:
@@ -94,10 +112,8 @@ def _google_base_url(requested: str, settings: Settings) -> str:
     return value
 
 
-def _google_key(
-    header_value: str | None, settings: Settings, stored_value: str = ""
-) -> str:
-    value = (header_value or stored_value or settings.google_api_key).strip()
+def _google_key(header_value: str | None) -> str:
+    value = (header_value or "").strip()
     if not value:
         raise MoonliError(
             "INVALID_INPUT",
@@ -127,18 +143,22 @@ def _make_transcriber(
     provider: str,
     google_api_key: str | None,
     settings: Settings,
-    stored_google_api_key: str = "",
+    instruction: str | None = None,
+    proxy_url: ProxyUrlSource = None,
 ):
     if provider == "mock":
         return MockTranscriber()
     base_url, timeout, _, _ = _google_options(options, settings)
     model = (options.google_transcription_model or settings.google_transcription_model).strip()
     try:
+        kwargs = {"instruction": instruction} if instruction is not None else {}
         return GoogleTranscriber(
             base_url,
-            _google_key(google_api_key, settings, stored_google_api_key),
+            _google_key(google_api_key),
             model,
             timeout,
+            proxy_url=proxy_url,
+            **kwargs,
         )
     except ValueError as exc:
         raise MoonliError("INVALID_INPUT", str(exc), 422) from exc
@@ -149,7 +169,7 @@ def _make_image_generator(
     provider: str,
     google_api_key: str | None,
     settings: Settings,
-    stored_google_api_key: str = "",
+    proxy_url: ProxyUrlSource = None,
 ):
     if provider == "mock":
         return MockImageGenerator()
@@ -158,11 +178,12 @@ def _make_image_generator(
     try:
         return GoogleImageGenerator(
             base_url,
-            _google_key(google_api_key, settings, stored_google_api_key),
+            _google_key(google_api_key),
             model,
             timeout,
             aspect_ratio,
             image_size,
+            proxy_url=proxy_url,
         )
     except ValueError as exc:
         raise MoonliError("INVALID_INPUT", str(exc), 422) from exc
@@ -173,18 +194,47 @@ def _make_prompt_normalizer(
     provider: str,
     google_api_key: str | None,
     settings: Settings,
-    stored_google_api_key: str = "",
+    instruction: str | None = None,
+    proxy_url: ProxyUrlSource = None,
 ):
     if provider == "mock":
         return MockPromptNormalizer()
     base_url, timeout, _, _ = _google_options(options, settings)
     model = (options.google_normalization_model or settings.google_normalization_model).strip()
     try:
+        kwargs = {"instruction": instruction} if instruction is not None else {}
         return GooglePromptNormalizer(
             base_url,
-            _google_key(google_api_key, settings, stored_google_api_key),
+            _google_key(google_api_key),
             model,
             timeout,
+            proxy_url=proxy_url,
+            **kwargs,
+        )
+    except ValueError as exc:
+        raise MoonliError("INVALID_INPUT", str(exc), 422) from exc
+
+
+def _make_image_variant_generator(
+    options: GoogleOptions,
+    provider: str,
+    google_api_key: str | None,
+    settings: Settings,
+    system_instruction: str,
+    proxy_url: ProxyUrlSource = None,
+):
+    if provider == "mock":
+        return MockImageVariantGenerator()
+    base_url, timeout, _, _ = _google_options(options, settings)
+    model = (options.google_image_model or settings.google_image_model).strip()
+    try:
+        return GoogleImageVariantGenerator(
+            base_url=base_url,
+            api_key=_google_key(google_api_key),
+            model=model,
+            timeout_seconds=timeout,
+            system_instruction=system_instruction,
+            proxy_url=proxy_url,
         )
     except ValueError as exc:
         raise MoonliError("INVALID_INPUT", str(exc), 422) from exc
@@ -270,7 +320,6 @@ def config(
 ) -> dict[str, object]:
     settings, _ = _authorize(request, authorization, x_api_key)
     profiles = request.app.state.pipeline_profiles
-    stored_google_key = request.app.state.production_secret_store.get_google_api_key()
     server_configuration = request.app.state.server_settings_store.get()
     return {
         "service": "Moonli",
@@ -279,9 +328,7 @@ def config(
             "image": settings.image_provider,
             "transcription": settings.transcription_provider,
             "normalization": settings.normalization_provider,
-            "google_key_configured_on_server": bool(
-                stored_google_key or settings.google_api_key
-            ),
+            "google_key_configured_on_server": False,
         },
         "google": {
             "base_url": settings.google_api_base_url,
@@ -300,6 +347,14 @@ def config(
                 "canvas": {"width": profile.width, "height": profile.height},
             }
             for profile_id, profile in profiles.items()
+        }
+        | {
+            "pipeline-3": {
+                "output_mode": "jpeg_set",
+                "palette_version": None,
+                "palette": [],
+                "canvas": {"width": 1024, "height": 1024},
+            }
         },
         "prompt_templates": server_configuration["prompt_templates"],
         "prompt_template_fields": [
@@ -337,7 +392,7 @@ async def normalize_prompt(
         payload.provider,
         x_google_api_key,
         settings,
-        request.app.state.production_secret_store.get_google_api_key(),
+        proxy_url=_routing_proxy(request),
     )
     started = time.perf_counter()
     try:
@@ -393,7 +448,7 @@ async def transcribe(
         options.provider,
         x_google_api_key,
         settings,
-        request.app.state.production_secret_store.get_google_api_key(),
+        proxy_url=_routing_proxy(request),
     )
     started = time.perf_counter()
     try:
@@ -427,7 +482,7 @@ async def generate_image(
         payload.provider,
         x_google_api_key,
         settings,
-        request.app.state.production_secret_store.get_google_api_key(),
+        proxy_url=_routing_proxy(request),
     )
     prompt = GenerationPrompt(
         text=payload.prompt,
@@ -646,7 +701,6 @@ async def run_pipeline(
         )
     form = await _form(request)
     options: PipelineLabOptions = _model_from_form(PipelineLabOptions, form)
-    profile = request.app.state.pipeline_profiles[options.pipeline]
     if options.type == "text":
         if not options.text:
             raise MoonliError("INVALID_INPUT", "Text is required for a text pipeline run.", 422)
@@ -657,26 +711,113 @@ async def run_pipeline(
         audio = await _audio_from_form(form, settings)
         generation_input = GenerationInput(type="audio", audio=audio)
         input_fingerprint = hashlib.sha256(audio.content).hexdigest()
+
+    if options.pipeline == "pipeline-3":
+        if generation_input.type == "audio":
+            transcriber = _make_transcriber(
+                options,
+                options.transcription_provider,
+                x_google_api_key,
+                settings,
+                PIPELINE_3_TRANSCRIPTION_INSTRUCTION,
+                proxy_url=_routing_proxy(request),
+            )
+        else:
+            transcriber = MockTranscriber()
+        transcription_provider_name = options.transcription_provider
+        normalizer = _make_prompt_normalizer(
+            options,
+            options.normalization_provider,
+            x_google_api_key,
+            settings,
+            NORMALIZATION_INSTRUCTION,
+            proxy_url=_routing_proxy(request),
+        )
+        generator = _make_image_variant_generator(
+            options,
+            options.image_provider,
+            x_google_api_key,
+            settings,
+            PIPELINE_3_IMAGE_SYSTEM_INSTRUCTION,
+            proxy_url=_routing_proxy(request),
+        )
+        service = Pipeline3Service(
+            input_resolver=InputResolver(transcriber, settings.max_text_length),
+            prompt_normalizer=normalizer,
+            image_generator=generator,
+            artifact_store=request.app.state.artifact_store,
+            run_repository=request.app.state.run_repository,
+            metrics=request.app.state.metrics,
+        )
+        request_hash = hashlib.sha256(
+            json.dumps(
+                {
+                    "pipeline": "pipeline-3",
+                    "input": input_fingerprint,
+                    "options": options.model_dump(exclude={"text"}),
+                },
+                sort_keys=True,
+                ensure_ascii=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        async with request.app.state.rate_limiter.limit(client_id):
+            result = await service.full_run(
+                generation_input=generation_input,
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+            )
+        trace = request.app.state.run_repository.get_artifact_trace(result.run_id)
+        archive = build_pipeline3_run_archive(
+            run_id=result.run_id,
+            completed_dir=result.path.parent,
+            generation_input=generation_input,
+            trace=trace,
+            image_provider=generator.name,
+            transcription_provider=transcription_provider_name,
+            normalization_provider=normalizer.name,
+        )
+        return Response(
+            content=archive.content,
+            media_type=archive.media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{archive.filename}"',
+                "X-Moonli-Run-Id": result.run_id,
+                "X-Moonli-Result-SHA256": archive.sha256,
+                "X-Moonli-Final-Output-SHA256": result.sha256,
+                "X-Moonli-Archive-Contract": "moonli-run-artifacts.v1",
+                "X-Moonli-Pipeline": "pipeline-3",
+                "X-Moonli-Input-Type": generation_input.type,
+                "X-Idempotent-Replay": str(result.replayed).lower(),
+                "X-Moonli-Image-Provider": generator.name,
+                "X-Moonli-Transcription-Provider": transcription_provider_name,
+                "X-Moonli-Normalization-Provider": normalizer.name,
+                "X-Moonli-Palette-Quantized": "false",
+                "Cache-Control": "no-store",
+            },
+        )
+
+    profile = request.app.state.pipeline_profiles[options.pipeline]
+    if options.type == "audio":
         transcriber = _make_transcriber(
             options,
             options.transcription_provider,
             x_google_api_key,
             settings,
-            request.app.state.production_secret_store.get_google_api_key(),
+            proxy_url=_routing_proxy(request),
         )
     generator = _make_image_generator(
         options,
         options.image_provider,
         x_google_api_key,
         settings,
-        request.app.state.production_secret_store.get_google_api_key(),
+        proxy_url=_routing_proxy(request),
     )
     normalizer = _make_prompt_normalizer(
         options,
         options.normalization_provider,
         x_google_api_key,
         settings,
-        request.app.state.production_secret_store.get_google_api_key(),
+        proxy_url=_routing_proxy(request),
     )
     service = GenerationService(
         input_resolver=InputResolver(transcriber, settings.max_text_length),

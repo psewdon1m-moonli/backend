@@ -11,9 +11,12 @@
    place the Google API key in `.env`; save it from the authenticated Production page.
 6. Never copy a workstation `.env` to the server.
 
-Production rejects mock providers, development credentials, missing model names,
-wildcard hosts and `MOONLI_GOOGLE_API_KEY`. It can start without a Google key so the
-operator can enter it in the browser; generation stays unavailable until then.
+The production client runtime rejects mock providers, development credentials,
+missing model names, wildcard hosts and `MOONLI_GOOGLE_API_KEY`. It can start without
+a Google key so the operator can enter it in the browser; client generation stays
+unavailable until then. Authenticated operator Test Calls remain available through
+Nginx in production and require the operator session plus CSRF for mutations. Their
+isolated configuration may use mock providers, or Google with the temporary tab key.
 
 ## Bootstrap and install
 
@@ -41,10 +44,11 @@ in `.env`; the data volume retains only its scrypt verifier.
 ## Exposure and authentication
 
 Nginx is the sole public listener. `api` also binds `127.0.0.1:18000` for the local
-updater. The public gateway forwards `/health`, `/v1/generate`, UI assets and the
+updater. The public gateway forwards `/health`, `/v1/generate`, `/v1/normalize`, UI assets and the
 allow-listed authenticated operator routes. `/metrics`, `/docs`, `/data`,
-`/proxy/image`, updater catalog/restore, test and legacy routes return `404` publicly.
-Unknown hosts return `421`.
+`/proxy/image`, updater catalog/restore and legacy routes return `404` publicly.
+Test routes are part of the authenticated operator allow-list. Unknown hosts return
+`421`.
 
 No VPN or mTLS is used. The boundary is normal domain TLS:
 
@@ -76,9 +80,44 @@ artifacts. It excludes Google/client/updater keys, cookies, sessions, `.env`, st
 and release files. Restore validates every member, schema, size, ratio and digest
 before mutation, creates a pre-restore snapshot and reapplies it on failure.
 
-`moonli_secrets` stores `/app/secrets/google-api-key`. APIs return only configured
-state/source—never the value or a mask. The logical backup intentionally excludes it;
-protect it with a separate encrypted disaster-recovery procedure.
+`moonli_secrets` stores pipeline Google keys plus the optional private routing state
+and Xray runtime configuration. APIs return only configured state/source—never a
+Google key or VLESS connection value. The logical backup intentionally excludes this
+volume; protect it with a separate encrypted disaster-recovery procedure.
+
+## Optional Google API routing
+
+The Compose topology includes `vless-proxy`, an internal-only Xray sidecar. Its Xray
+base image is pinned to version `26.7.11` and an immutable digest. It exposes port
+`18080` only to the Compose network and has a read-only root filesystem, all Linux
+capabilities dropped, bounded processes/memory/CPU, and rotated logs. It shares the
+secrets volume read-only and runs as the same unprivileged numeric user as the API.
+
+In the authenticated console, open **Configuration → Routing**, paste a VLESS
+Reality/TCP/Vision connection, enable the switch, and select **Save Settings**. The
+API validates the URI structure, atomically stores the private value with mode `0600`,
+and materializes an Xray JSON configuration. The sidecar validates and reloads that
+configuration automatically. The browser and API responses receive only three fields:
+whether proxying is enabled, whether a connection is configured, and `direct` or
+`vless` mode.
+
+When routing is enabled, only Moonli's outbound Google provider requests and Google
+key validation use `http://vless-proxy:18080`. Internal services, updater traffic,
+client traffic and Nginx never use the route. Disabling the switch returns Google
+requests to a direct connection while retaining the private VLESS value for later
+reuse. Saving an empty VLESS field also retains the stored value.
+
+This feature changes Compose topology, so an already-installed server cannot acquire
+it through an image-only in-app update. After taking an operator snapshot and placing
+the reviewed deployment bundle in `/opt/moonli`, apply the maintenance update with:
+
+```bash
+cd /opt/moonli
+sudo docker compose --env-file .env -f docker-compose.yml -f compose.production.yml config --quiet
+sudo docker compose --env-file .env -f docker-compose.yml -f compose.production.yml up -d --build --wait vless-proxy api gateway
+```
+
+Do not put a VLESS URI in `.env`, source control, support logs, or a logical backup.
 
 ## Updates and rollback
 
@@ -105,6 +144,7 @@ snapshot. It must not be advertised as a safe one-click update.
 ```bash
 docker compose --env-file /opt/moonli/.env -f docker-compose.yml -f compose.production.yml config
 docker compose --env-file /opt/moonli/.env -f docker-compose.yml -f compose.production.yml ps
+docker compose --env-file /opt/moonli/.env -f docker-compose.yml -f compose.production.yml logs --tail 30 vless-proxy api
 curl --fail https://moonli.example.com/health
 curl --fail --header 'Host: moonli.example.com' http://127.0.0.1:18000/readyz
 ```
