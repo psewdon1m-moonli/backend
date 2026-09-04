@@ -27,7 +27,7 @@ API_BASE_URL = "https://moonli.shmoza.net"
 # Paste only the key value: without "Bearer", quotes from .env, or the variable name.
 API_KEY = "PASTE_MOONLI_ACCESS_KEY_HERE".strip()
 
-AUDIO_PATH = os.path.join(project.folder, "voice.wav")
+AUDIO_PATH = "Q:/projects/monli_table/MonliProj/voice.wav"
 REQUEST_TIMEOUT_SECONDS = 300
 NETWORK_ATTEMPTS = 3
 MAX_AUDIO_BYTES = 20 * 1024 * 1024

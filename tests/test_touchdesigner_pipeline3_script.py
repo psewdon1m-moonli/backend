@@ -40,13 +40,12 @@ def test_touchdesigner_transcription_replacement_preserves_runtime_contract() ->
     assert '"op(args[0]).text = args[1]"' in source
 
 
-def test_touchdesigner_pipeline_3_scripts_share_identity_and_credentials() -> None:
+def test_touchdesigner_pipeline_3_scripts_share_identity_and_configure_credentials() -> None:
     transcription = TRANSCRIPTION_SCRIPT.read_text(encoding="utf-8")
     generation = GENERATION_SCRIPT.read_text(encoding="utf-8")
 
     shared_contracts = (
         'API_BASE_URL = "https://moonli.shmoza.net"',
-        'os.getenv("MOONLI_ACCESS_KEY", "PASTE_MOONLI_ACCESS_KEY_HERE")',
         'DEVICE_DIRECTORY = os.path.join(project.folder, ".moonli")',
         'DEVICE_ID_PATH = os.path.join(DEVICE_DIRECTORY, "device_id.txt")',
         'DEVICE_ID_PATTERN = re.compile(r"^td-[0-9]{8}$")',
@@ -54,3 +53,9 @@ def test_touchdesigner_pipeline_3_scripts_share_identity_and_credentials() -> No
     for contract in shared_contracts:
         assert contract in transcription
         assert contract in generation
+
+    assert 'API_KEY = "PASTE_MOONLI_ACCESS_KEY_HERE".strip()' in transcription
+    assert (
+        'os.getenv("MOONLI_ACCESS_KEY", "PASTE_MOONLI_ACCESS_KEY_HERE")'
+        in generation
+    )
