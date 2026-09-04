@@ -83,7 +83,7 @@ reuse that operation's UUID.
 First, audio is transcribed and normalized:
 
 ```http
-POST /v1/normalize
+POST /v1/generate
 Authorization: Bearer <device credential>
 X-Moonli-Device-Id: td-02941846
 Idempotency-Key: <new UUID>
@@ -216,16 +216,19 @@ Codes include `INVALID_INPUT`, `INVALID_DEVICE_ID`, `DEVICE_BLOCKED`,
 
 ## Operator routing API
 
-The browser console uses the session-authenticated, CSRF-protected
-`GET|PUT /internal/routing` endpoint. This is not a client-generation endpoint.
-`GET` returns only:
+For compatibility with image-only updates behind a gateway from 0.0.2, the browser
+reads routing state from `GET /internal/production/config` and submits a
+CSRF-protected routing action to `PUT /internal/production/config`. The dedicated
+`GET|PUT /internal/routing` route remains an alias for gateways that expose it. These
+are not client-generation endpoints. The routing object contains only:
 
 ```json
 {"enabled": false, "configured": true, "mode": "direct"}
 ```
 
-`PUT` accepts `enabled` and an optional `vless_uri`. Omitting or sending an empty URI
-retains the saved private connection. The server never returns the URI. When enabled,
+The routing action accepts `action="routing"`, `enabled`, and an optional `vless_uri`.
+Omitting or sending an empty URI retains the saved private connection. The server
+never returns the URI. Enabling is rejected until the Xray sidecar is reachable. When enabled,
 all Google adapters resolve the internal proxy route at request time, so production
 pipelines and authenticated Test Calls follow the new route without rebuilding their
 provider objects.

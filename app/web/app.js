@@ -21,7 +21,6 @@ const state = {
   production: null,
   routing: null,
   pipeline3Integration: null,
-  pipeline3IntegrationPromise: null,
   devices: [],
   overviewStats: null,
   settings: null,
@@ -670,6 +669,7 @@ function hydrateConfiguration(config) {
   const saved = readPreferences();
   state.config = config;
   state.production = config.production || null;
+  state.pipeline3Integration = state.production?.pipeline_3_integration || null;
   state.routing = config.routing || { enabled: false, configured: false, mode: "direct" };
   state.defaultTemplates = { ...config.prompt_templates };
   state.templates = { ...config.prompt_templates };
@@ -703,16 +703,14 @@ async function loadConsoleConfiguration() {
   const [
     { data: testConfiguration },
     { data: productionConfiguration },
-    { data: routingConfiguration },
   ] = await Promise.all([
     apiCall("/internal/test/config"),
     apiCall("/internal/production/config"),
-    apiCall("/internal/routing"),
   ]);
   return {
     ...testConfiguration,
     production: productionConfiguration.production,
-    routing: routingConfiguration,
+    routing: productionConfiguration.routing,
   };
 }
 
@@ -888,25 +886,16 @@ function renderPipeline3Integration(host) {
   summary.innerHTML = "<strong>TouchDesigner integration kit</strong><span>2 API requests · 2 full scripts</span>";
   const content = document.createElement("div");
   content.className = "pipeline-integration-body";
-  content.textContent = "Expand to load the integration kit.";
+  content.textContent = "Expand to view the integration kit.";
   details.append(summary, content);
-  details.addEventListener("toggle", async () => {
+  details.addEventListener("toggle", () => {
     if (!details.open || details.dataset.loaded === "true") return;
-    content.textContent = "Loading complete contracts and scripts...";
-    try {
-      if (!state.pipeline3IntegrationPromise) {
-        state.pipeline3IntegrationPromise = apiCall(
-          "/internal/production/pipelines/pipeline-3/integration",
-        ).then(({ data }) => data);
-      }
-      state.pipeline3Integration = await state.pipeline3IntegrationPromise;
-      details.dataset.loaded = "true";
-      populatePipeline3Integration(content, state.pipeline3Integration);
-    } catch (error) {
-      state.pipeline3IntegrationPromise = null;
-      content.textContent = errorText(error);
-      notice(errorText(error), "error");
+    if (!state.pipeline3Integration) {
+      content.textContent = "The integration kit is unavailable in the server configuration.";
+      return;
     }
+    details.dataset.loaded = "true";
+    populatePipeline3Integration(content, state.pipeline3Integration);
   });
   host.append(details);
 }
@@ -1108,6 +1097,8 @@ async function handleClearProductionGoogleKey() {
 async function reloadProductionConfiguration() {
   const { data } = await apiCall("/internal/production/config");
   state.production = data.production || null;
+  state.pipeline3Integration = state.production?.pipeline_3_integration || null;
+  state.routing = data.routing || state.routing;
   renderProduction();
 }
 
@@ -1123,10 +1114,10 @@ async function handleProductionPipelineSubmit(event) {
     if (!value) return notice(`Enter a Google API Key for ${pipelineId}.`, "error");
     setPending(button, true, "Saving...");
     try {
-      await apiCall(`/internal/production/pipelines/${pipelineId}/google-key`, {
+      await apiCall("/internal/production/google-key", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ google_api_key: value }),
+        body: JSON.stringify({ pipeline: pipelineId, google_api_key: value }),
       });
       input.value = "";
       await reloadProductionConfiguration();
@@ -1152,10 +1143,10 @@ async function handleProductionPipelineSubmit(event) {
   }
   setPending(button, true, "Saving...");
   try {
-    await apiCall(`/internal/production/pipelines/${pipelineId}/config`, {
+    await apiCall("/internal/production/config", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ action: "pipeline", pipeline: pipelineId, config: payload }),
     });
     await reloadProductionConfiguration();
     notice(`${pipelineId} production configuration saved.`);
@@ -1173,7 +1164,7 @@ async function handleProductionPipelineClick(event) {
   if (!window.confirm(`Delete the ${pipelineId} Google API Key?`)) return;
   setPending(button, true, "Deleting...");
   try {
-    await apiCall(`/internal/production/pipelines/${pipelineId}/google-key`, {
+    await apiCall(`/internal/production/google-key?pipeline=${encodeURIComponent(pipelineId)}`, {
       method: "DELETE",
     });
     await reloadProductionConfiguration();
@@ -1729,10 +1720,10 @@ async function handleRoutingSettings(event) {
   if (vlessUri) payload.vless_uri = vlessUri;
   setPending(button, true, "Saving...");
   try {
-    const { data } = await apiCall("/internal/routing", {
+    const { data } = await apiCall("/internal/production/config", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ action: "routing", ...payload }),
     });
     state.routing = data;
     syncRoutingControls();

@@ -12,7 +12,7 @@
     },
     {
       "id": "client-api",
-      "route": "POST /v1/generate and POST /v1/normalize",
+      "route": "POST /v1/generate; POST /v1/normalize compatibility alias",
       "mode": "public/non-indexable",
       "identity": "independent client API key plus persistent td-/aa- device identifier",
       "owner": "moonli-api"

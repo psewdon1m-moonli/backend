@@ -24,10 +24,10 @@ import uuid
 API_BASE_URL = "https://moonli.shmoza.net"
 
 # This is the Moonli client access key, not the Google API key.
-# Prefer setting MOONLI_ACCESS_KEY in the TouchDesigner process environment.
-API_KEY = os.getenv("MOONLI_ACCESS_KEY", "PASTE_MOONLI_ACCESS_KEY_HERE").strip()
+# Paste only the key value: without "Bearer", quotes from .env, or the variable name.
+API_KEY = "PASTE_MOONLI_ACCESS_KEY_HERE".strip()
 
-AUDIO_PATH = "Q:/projects/monli_table/MonliProj/voice.wav"
+AUDIO_PATH = os.path.join(project.folder, "voice.wav")
 REQUEST_TIMEOUT_SECONDS = 300
 NETWORK_ATTEMPTS = 3
 MAX_AUDIO_BYTES = 20 * 1024 * 1024
@@ -41,8 +41,7 @@ DEVICE_ID_PATTERN = re.compile(r"^td-[0-9]{8}$")
 def _require_access_key():
     if not API_KEY or API_KEY == "PASTE_MOONLI_ACCESS_KEY_HERE":
         raise RuntimeError(
-            "Moonli access key is not configured. Set MOONLI_ACCESS_KEY "
-            "or replace API_KEY in this script."
+            "Moonli access key is not configured. Replace API_KEY in this script."
         )
     return API_KEY
 
@@ -174,7 +173,7 @@ def _http_error_details(error):
 
 def _request_normalized_text(audio_path, device_id, operation_id):
     body, content_type = _multipart_audio(audio_path)
-    endpoint = API_BASE_URL.rstrip("/") + "/v1/normalize"
+    endpoint = API_BASE_URL.rstrip("/") + "/v1/generate"
     last_error = None
     for attempt in range(NETWORK_ATTEMPTS):
         request = urllib.request.Request(

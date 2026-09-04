@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 import threading
 import uuid
 from pathlib import Path
@@ -62,6 +63,16 @@ class RoutingConfigStore:
         if current["enabled"] and current["vless_uri"]:
             return PROXY_URL
         return None
+
+    @staticmethod
+    def proxy_available(timeout_seconds: float = 1.0) -> bool:
+        try:
+            with socket.create_connection(
+                ("vless-proxy", 18080), timeout=timeout_seconds
+            ):
+                return True
+        except OSError:
+            return False
 
     def update(self, *, enabled: bool, vless_uri: str | None = None) -> dict[str, object]:
         with self._lock:

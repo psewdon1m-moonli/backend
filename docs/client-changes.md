@@ -15,7 +15,9 @@ script preserves `op('answer')`, `index += 1`, both `sfx_button` pulses, both `/
 water commands, `generated/image_1.jpg` through `image_3.jpg`, and the three matching
 Movie File In TOP reloads. Both scripts reuse `.moonli/device_id.txt`; each logical
 operation gets a fresh UUID. The Google key and image system instruction live only on
-the server.
+the server. Both pipeline-3 operations use `POST /v1/generate`, which keeps the client
+compatible with a gateway installed by release 0.0.2; `/v1/normalize` remains a
+server alias but is not used by the replacement script.
 
 Treat `main_table_script/Архив/MonliProj/Player.toe` as the canonical runtime after a
 manual operator confirms that it is the installation entry point. Stop editing the

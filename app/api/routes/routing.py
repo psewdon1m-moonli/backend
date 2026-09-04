@@ -21,24 +21,18 @@ def _authorize(request: Request, *, mutate: bool = False) -> None:
     )
 
 
-@router.get("")
-def get_routing(request: Request, response: Response) -> dict[str, object]:
-    _authorize(request)
-    response.headers["Cache-Control"] = "no-store"
-    return request.app.state.routing_config_store.status()
-
-
-@router.put("")
-def update_routing(
-    payload: RoutingUpdate, request: Request, response: Response
+def save_routing_configuration(
+    request: Request, *, enabled: bool, vless_uri: str | None
 ) -> dict[str, object]:
-    _authorize(request, mutate=True)
-    value = payload.vless_uri.get_secret_value() if payload.vless_uri is not None else None
-    try:
-        stored = request.app.state.routing_config_store.update(
-            enabled=payload.enabled,
-            vless_uri=value,
+    store = request.app.state.routing_config_store
+    if enabled and not store.proxy_available():
+        raise MoonliError(
+            "ROUTING_PROXY_UNAVAILABLE",
+            "The Xray sidecar is not available. Apply the Compose maintenance update before enabling proxy routing.",
+            503,
         )
+    try:
+        stored = store.update(enabled=enabled, vless_uri=vless_uri)
     except ValueError as exc:
         raise MoonliError("INVALID_ROUTING_CONFIGURATION", str(exc), 422) from exc
     request.app.state.audit_store.append(
@@ -52,6 +46,30 @@ def update_routing(
             "enabled": stored["enabled"],
             "configured": stored["configured"],
         },
+    )
+    return stored
+
+
+@router.get("")
+def get_routing(request: Request, response: Response) -> dict[str, object]:
+    _authorize(request)
+    response.headers["Cache-Control"] = "no-store"
+    return request.app.state.routing_config_store.status()
+
+
+@router.put("")
+def update_routing(
+    payload: RoutingUpdate, request: Request, response: Response
+) -> dict[str, object]:
+    _authorize(request, mutate=True)
+    stored = save_routing_configuration(
+        request,
+        enabled=payload.enabled,
+        vless_uri=(
+            payload.vless_uri.get_secret_value()
+            if payload.vless_uri is not None
+            else None
+        ),
     )
     response.headers["Cache-Control"] = "no-store"
     return stored

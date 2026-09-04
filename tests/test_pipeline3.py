@@ -61,7 +61,7 @@ def test_pipeline_3_two_request_contract_returns_plain_text_then_three_jpegs(
     generate_key = str(uuid.uuid4())
     with _client(tmp_path) as client:
         normalized = client.post(
-            "/v1/normalize",
+            "/v1/generate",
             headers=_headers(device_id, normalize_key),
             data={"type": "audio", "pipeline": "pipeline-3"},
             files={"audio": ("voice.wav", b"RIFF" + b"\0" * 1500, "audio/wav")},
@@ -105,7 +105,7 @@ def test_pipeline_3_operation_namespaces_allow_same_uuid_for_both_calls(tmp_path
     headers = _headers("td-12345678", operation_id)
     with _client(tmp_path) as client:
         normalized = client.post(
-            "/v1/normalize",
+            "/v1/generate",
             headers=headers,
             data={"type": "audio", "pipeline": "pipeline-3"},
             files={"audio": ("voice.wav", b"RIFF" + b"\0" * 1500, "audio/wav")},
@@ -116,6 +116,20 @@ def test_pipeline_3_operation_namespaces_allow_same_uuid_for_both_calls(tmp_path
             json={"type": "text", "pipeline": "pipeline-3", "text": normalized.text},
         )
     assert normalized.status_code == generated.status_code == 200
+
+
+def test_pipeline_3_normalize_alias_matches_generate_audio_contract(tmp_path) -> None:
+    with _client(tmp_path) as client:
+        normalized = client.post(
+            "/v1/normalize",
+            headers=_headers("td-87654321", str(uuid.uuid4())),
+            data={"type": "audio", "pipeline": "pipeline-3"},
+            files={"audio": ("voice.wav", b"RIFF" + b"\0" * 1500, "audio/wav")},
+        )
+
+    assert normalized.status_code == 200
+    assert normalized.headers["content-type"].startswith("text/plain")
+    assert normalized.text == "A calm moonlit landscape made from simple, clean color shapes"
 
 
 def test_pipeline_3_google_payload_preserves_production_prompt_exactly() -> None:

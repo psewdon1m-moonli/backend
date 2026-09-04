@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from fastapi import APIRouter, Header, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import ValidationError
 from starlette.datastructures import UploadFile
 
@@ -201,7 +201,7 @@ async def generate(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     x_moonli_device_id: str | None = Header(default=None, alias="X-Moonli-Device-Id"),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-) -> FileResponse:
+) -> Response:
     if not idempotency_key or not IDEMPOTENCY_KEY.fullmatch(idempotency_key):
         raise MoonliError(
             "INVALID_INPUT",
@@ -219,27 +219,47 @@ async def generate(
     settings: Settings = request.app.state.moonli_settings
     async with request.app.state.rate_limiter.limit(device.device_id):
         generation_input, fingerprint, pipeline = await _parse_input(request, settings)
-        _ensure_pipeline_credential(
-            request,
-            pipeline,
-            provider_fields=("image_provider",)
-            if pipeline == "pipeline-3"
-            else (
-                "image_provider",
-                "transcription_provider",
-                "normalization_provider",
-            ),
+        is_pipeline_3_normalization = (
+            pipeline == "pipeline-3" and generation_input.type == "audio"
         )
-        request.app.state.production_usage_store.record_request(
-            pipeline=pipeline, input_type=generation_input.type
-        )
-        if pipeline == "pipeline-3":
-            if generation_input.type != "text" or generation_input.text is None:
-                raise MoonliError(
-                    "INVALID_INPUT",
-                    "pipeline-3 generation requires normalized text input.",
-                    422,
-                )
+        if is_pipeline_3_normalization:
+            _ensure_pipeline_credential(
+                request,
+                pipeline,
+                provider_fields=("transcription_provider", "normalization_provider"),
+            )
+            request.app.state.production_usage_store.record_request(
+                pipeline=pipeline, input_type="audio-normalization"
+            )
+            request_hash = hashlib.sha256(
+                device.device_id.encode("ascii")
+                + b"\0pipeline-3\0normalize\0"
+                + fingerprint
+            ).hexdigest()
+            result = await request.app.state.pipeline3_service.normalize(
+                generation_input=generation_input,
+                idempotency_key=(
+                    f"{device.device_id}:pipeline-3:normalize:{idempotency_key}"
+                ),
+                request_hash=request_hash,
+            )
+        else:
+            _ensure_pipeline_credential(
+                request,
+                pipeline,
+                provider_fields=("image_provider",)
+                if pipeline == "pipeline-3"
+                else (
+                    "image_provider",
+                    "transcription_provider",
+                    "normalization_provider",
+                ),
+            )
+            request.app.state.production_usage_store.record_request(
+                pipeline=pipeline, input_type=generation_input.type
+            )
+        if pipeline == "pipeline-3" and not is_pipeline_3_normalization:
+            assert generation_input.text is not None
             request_hash = hashlib.sha256(
                 device.device_id.encode("ascii")
                 + b"\0pipeline-3\0generate\0"
@@ -252,7 +272,7 @@ async def generate(
                 ),
                 request_hash=request_hash,
             )
-        else:
+        elif pipeline != "pipeline-3":
             profile = request.app.state.pipeline_profiles[pipeline]
             request_hash = hashlib.sha256(
                 device.device_id.encode("ascii")
@@ -269,6 +289,28 @@ async def generate(
                 idempotency_key=f"{device.device_id}:{idempotency_key}",
                 request_hash=request_hash,
             )
+    if is_pipeline_3_normalization:
+        if audit_store is not None:
+            audit_store.append(
+                action="production.normalize",
+                outcome="success",
+                summary="Production transcription and normalization completed.",
+                actor_type="device",
+                actor_id=device.device_id,
+                target_type="generation_run",
+                target_id=result.run_id,
+                request_id=getattr(request.state, "request_id", None),
+                context={
+                    "pipeline": pipeline,
+                    "connection_type": device.connection_type,
+                    "client_credential_id": authenticated.client_id,
+                },
+            )
+        return PlainTextResponse(
+            result.path.read_text(encoding="utf-8"),
+            media_type="text/plain",
+            headers={"Cache-Control": "no-store"},
+        )
     if audit_store is not None:
         audit_store.append(
             action="production.generate",

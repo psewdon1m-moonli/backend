@@ -106,8 +106,9 @@ def test_configuration_contains_private_vless_routing_controls() -> None:
     assert 'id="routingProxyEnabled"' in configuration
     assert 'id="routingVlessUri" type="password"' in configuration
     assert 'id="saveRoutingSettings"' in configuration
-    assert 'apiCall("/internal/routing")' in javascript
-    assert 'apiCall("/internal/routing", {' in javascript
+    assert 'apiCall("/internal/production/config")' in javascript
+    assert 'body: JSON.stringify({ action: "routing", ...payload })' in javascript
+    assert 'apiCall("/internal/routing"' not in javascript
     assert "state.routing = data" in javascript
 
 
@@ -145,7 +146,8 @@ def test_production_renders_three_independent_pipeline_sections() -> None:
     assert 'data-action="save-config"' in javascript
     assert "3 JPEG files · 1024×1024" in javascript
     assert "TouchDesigner integration kit" in javascript
-    assert "/internal/production/pipelines/pipeline-3/integration" in javascript
+    assert "pipeline_3_integration" in javascript
+    assert "/internal/production/pipelines/" not in javascript
     assert "Copy Full Request" in javascript
     assert "Copy Full Script" in javascript
 

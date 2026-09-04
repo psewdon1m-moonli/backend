@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="dark">
   <title>Moonli</title>
   <link rel="icon" type="image/png" href="/web/assets/halftone-moon-alpha.png?v=20260903-10">
-  <link rel="stylesheet" href="/web/styles.css?v=20260904-18">
-  <script src="/web/app.js?v=20260904-18" defer></script>
+  <link rel="stylesheet" href="/web/styles.css?v=20260904-19">
+  <script src="/web/app.js?v=20260904-19" defer></script>
 </head>
 <body>
   <div id="noticeStack" class="notice-stack" aria-live="polite" aria-atomic="true"></div>
@@ -540,7 +540,7 @@
 
               <section id="docs-overview" class="documentation-section">
                 <h3><span>01</span> System overview</h3>
-                <p>Moonli owns three tagged generation profiles. <code>pipeline-1</code> and <code>pipeline-2</code> complete the processed image flow in one <code>POST /v1/generate</code> request. <code>pipeline-3</code> mirrors the production TouchDesigner flow: audio is transcribed and normalized by <code>POST /v1/normalize</code>, then the returned text is sent to <code>POST /v1/generate</code> for three independent JPEG variants. The client type never selects or restricts the pipeline.</p>
+                <p>Moonli owns three tagged generation profiles. <code>pipeline-1</code> and <code>pipeline-2</code> complete the processed image flow in one <code>POST /v1/generate</code> request. <code>pipeline-3</code> mirrors the production TouchDesigner flow: audio is transcribed and normalized by a multipart <code>POST /v1/generate</code>, then the returned text is sent to the same endpoint as JSON for three independent JPEG variants. The client type never selects or restricts the pipeline.</p>
                 <div class="documentation-callout"><strong>Production boundary.</strong> Nginx is the only public listener. Public traffic uses the configured HTTPS domain. Test Calls are available in production only through the authenticated operator session and require CSRF protection for mutations. The application port, databases, metrics, storage paths, legacy endpoints, updater catalog, and restore routes are not public.</div>
                 <p>Operator authentication, client authentication, device identity, and pipeline routing are separate concerns:</p>
                 <ul>
@@ -566,7 +566,7 @@
 
               <section id="docs-client-api" class="documentation-section">
                 <h3><span>03</span> Production client API</h3>
-                <p>Every request requires a Bearer credential, a stable device identifier, and an idempotency key. Use a fresh UUID for each logical operation and reuse it only when retrying that exact operation. Pipelines 1 and 2 accept text or audio at <code>/v1/generate</code>; pipeline 3 uses <code>/v1/normalize</code> for audio and <code>/v1/generate</code> for its normalized text.</p>
+                <p>Every request requires a Bearer credential, a stable device identifier, and an idempotency key. Use a fresh UUID for each logical operation and reuse it only when retrying that exact operation. All three pipelines use <code>/v1/generate</code>: pipeline 3 sends audio first and then sends the returned normalized text with a new operation UUID.</p>
                 <h4>Text input</h4>
                 <pre><code>POST /v1/generate HTTP/1.1
 Host: moonli.example.com
@@ -729,7 +729,7 @@ curl --fail https://moonli.example.com/health</code></pre>
                 <ul>
                   <li>Add one external, diffable HTTP client module beside the canonical <code>Player.toe</code>.</li>
                   <li>Persist a securely randomized <code>td-########</code> identifier in installation-local configuration.</li>
-                  <li>For pipeline 3, send audio to <code>/v1/normalize</code>, then send the returned normalized text from <code>op('answer')</code> to <code>/v1/generate</code>.</li>
+                  <li>For pipeline 3, send audio as multipart to <code>/v1/generate</code>, then send the returned normalized text from <code>op('answer')</code> as JSON to the same endpoint.</li>
                   <li>Use the same persisted device ID for both calls, a fresh UUID for each operation, a 300-second timeout, and the same UUID only when retrying that operation.</li>
                   <li>Validate the in-memory generation ZIP, atomically save <code>image_1.jpg</code> through <code>image_3.jpg</code>, and reload all three matching Movie File In TOPs.</li>
                   <li>Preserve the production DAT's index increment, two sound pulses, and two water-queue commands.</li>

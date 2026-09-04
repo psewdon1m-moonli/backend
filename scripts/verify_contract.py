@@ -20,9 +20,13 @@ def main() -> int:
     xray_dockerfile = (ROOT / "deploy/xray/Dockerfile").read_text(encoding="utf-8")
     nginx = (ROOT / "deploy/nginx/default.conf.template").read_text(encoding="utf-8")
     html = (ROOT / "app/web/index.html").read_text(encoding="utf-8")
+    javascript = (ROOT / "app/web/app.js").read_text(encoding="utf-8")
     operations = (ROOT / "app/web/operations.html").read_text(encoding="utf-8")
     touchdesigner_generation = (
         ROOT / "integrations/touchdesigner/pipeline3_generation.py"
+    ).read_text(encoding="utf-8")
+    touchdesigner_transcription = (
+        ROOT / "integrations/touchdesigner/pipeline3_transcription.py"
     ).read_text(encoding="utf-8")
     ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     release_workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
@@ -80,6 +84,20 @@ def main() -> int:
         findings,
     )
     require("location = /v1/normalize" in nginx, "pipeline-3 normalize route is not exposed", findings)
+    require(
+        'apiCall("/internal/routing"' not in javascript
+        and "/internal/production/pipelines/" not in javascript
+        and 'apiCall("/internal/production/config"' in javascript
+        and 'apiCall("/internal/production/google-key"' in javascript,
+        "frontend depends on control routes that the 0.0.2 gateway does not expose",
+        findings,
+    )
+    require(
+        'API_BASE_URL.rstrip("/") + "/v1/generate"' in touchdesigner_transcription
+        and "/v1/normalize" not in touchdesigner_transcription,
+        "TouchDesigner pipeline-3 transcription is not compatible with the 0.0.2 gateway",
+        findings,
+    )
     require("/api/v1/register/snapshot" not in nginx, "updater catalog must stay loopback-only", findings)
     require("/internal/updater/restore" not in nginx, "updater restore must stay loopback-only", findings)
     require('X-Robots-Tag "noindex, nofollow, noarchive"' in nginx, "non-indexing header is missing", findings)

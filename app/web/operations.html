@@ -80,7 +80,7 @@ Content-Type: multipart/form-data; boundary=...
 type=audio
 pipeline=pipeline-2
 audio=&lt;audio file&gt;</code></pre>
-      <p>Each request selects exactly one server-owned profile: <code>pipeline-1</code>, <code>pipeline-2</code>, or <code>pipeline-3</code>. Do not send provider, palette, stage, or table fields. The server rejects missing, unknown, or misspelled tags. Audio type and size are validated before provider work begins. Pipeline 3 sends audio to <code>/v1/normalize</code>, then sends the returned normalized text to <code>/v1/generate</code> using a fresh operation UUID.</p>
+      <p>Each request selects exactly one server-owned profile: <code>pipeline-1</code>, <code>pipeline-2</code>, or <code>pipeline-3</code>. Do not send provider, palette, stage, or table fields. The server rejects missing, unknown, or misspelled tags. Audio type and size are validated before provider work begins. Pipeline 3 sends both operations to <code>/v1/generate</code>: audio as multipart, then the returned normalized text as JSON using a fresh operation UUID.</p>
       <div class="documentation-callout"><strong>Idempotency.</strong> Use a new UUID for a new logical request. If transport fails, retry the identical payload with the same key. A completed result is replayed without another generation. Reusing the key with a changed payload produces <code>IDEMPOTENCY_CONFLICT</code>; a concurrent duplicate produces <code>GENERATION_IN_PROGRESS</code> and <code>Retry-After</code>.</div>
     </section>
 
@@ -191,7 +191,7 @@ curl --fail https://moonli.example.com/health</code></pre>
       <ul>
         <li>Add an external, diffable API module beside the canonical <code>Player.toe</code>; keep credentials outside the project file and Git.</li>
         <li>Persist one <code>td-########</code> identity in <code>.moonli/device_id.txt</code> and reuse it for both pipeline-3 operations.</li>
-        <li>Send audio to <code>/v1/normalize</code>, place the returned text in <code>op('answer')</code>, then send that text to <code>/v1/generate</code>. Allocate a fresh UUID per operation and reuse it only for an automatic retry of that operation.</li>
+        <li>Send audio as multipart to <code>/v1/generate</code>, place the returned text in <code>op('answer')</code>, then send that text as JSON to the same endpoint. Allocate a fresh UUID per operation and reuse it only for an automatic retry of that operation.</li>
         <li>Keep the generation ZIP in memory, require exactly three distinct 1024×1024 JPEG members, atomically save <code>generated/image_1.jpg</code> through <code>image_3.jpg</code>, and reload <code>moviefilein1</code> through <code>moviefilein3</code>.</li>
         <li>Preserve the existing index increment, both sound pulses, and both water-queue commands around the generation trigger.</li>
       </ul>

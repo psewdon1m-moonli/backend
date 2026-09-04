@@ -34,6 +34,7 @@ def _client(tmp_path) -> tuple[TestClient, RoutingConfigStore]:
     application.state.moonli_settings = settings
     application.state.operator_auth_store = components.operator_auth_store
     application.state.routing_config_store = components.routing_config_store
+    application.state.routing_config_store.proxy_available = lambda: True
     application.state.audit_store = components.audit_store
     install_error_handlers(application)
     application.include_router(router)
@@ -118,3 +119,18 @@ def test_routing_requires_operator_authentication(tmp_path) -> None:
         response = client.get("/internal/routing")
 
     assert response.status_code == 401
+
+
+def test_proxy_cannot_be_enabled_before_xray_sidecar_is_available(tmp_path) -> None:
+    client, store = _client(tmp_path)
+    client.app.state.routing_config_store.proxy_available = lambda: False
+
+    with client:
+        response = client.put(
+            "/internal/routing",
+            json={"enabled": True, "vless_uri": VLESS_FIXTURE},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "ROUTING_PROXY_UNAVAILABLE"
+    assert store.status() == {"enabled": False, "configured": False, "mode": "direct"}

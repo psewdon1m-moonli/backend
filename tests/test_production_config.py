@@ -5,6 +5,7 @@ from dataclasses import replace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import app.api.routes.production as production_routes
 from app.api.errors import MoonliError, install_error_handlers
 from app.api.routes.production import router
 from app.composition import build_components
@@ -20,6 +21,14 @@ class _AcceptingValidator:
 class _RejectingValidator:
     async def validate(self, _: str) -> None:
         raise MoonliError("GOOGLE_KEY_INVALID", "Google rejected the credential.", 422)
+
+
+class _AcceptingPipelineValidator:
+    def __init__(self, *_: object) -> None:
+        pass
+
+    async def validate(self, _: str) -> None:
+        return None
 
 
 def _client(tmp_path) -> tuple[TestClient, ProductionSecretStore]:
@@ -153,7 +162,7 @@ def test_pipeline_3_integration_kit_contains_two_requests_and_two_scripts(tmp_pa
         "pipeline3_transcription.py",
         "pipeline3_generation.py",
     ]
-    assert "POST /v1/normalize HTTP/1.1" in payload["requests"][0]["content"]
+    assert "POST /v1/generate HTTP/1.1" in payload["requests"][0]["content"]
     assert "POST /v1/generate HTTP/1.1" in payload["requests"][1]["content"]
     assert "<NORMALIZED_TEXT_ONLY>" in payload["requests"][0]["content"]
     assert "image_1.jpg" in payload["requests"][1]["content"]
@@ -161,6 +170,90 @@ def test_pipeline_3_integration_kit_contains_two_requests_and_two_scripts(tmp_pa
     assert 'target_op = op("answer")' in payload["scripts"][1]["content"]
     assert "PASTE_MOONLI_ACCESS_KEY_HERE" in response.text
     assert "AIza" not in response.text
+
+
+def test_legacy_gateway_config_route_contains_all_new_ui_data(tmp_path) -> None:
+    client, _ = _client(tmp_path)
+
+    with client:
+        response = client.get("/internal/production/config")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["routing"] == {
+        "enabled": False,
+        "configured": False,
+        "mode": "direct",
+    }
+    integration = payload["production"]["pipeline_3_integration"]
+    assert len(integration["requests"]) == 2
+    assert len(integration["scripts"]) == 2
+    assert "POST /v1/generate HTTP/1.1" in integration["requests"][0]["content"]
+
+
+def test_legacy_gateway_config_route_updates_pipeline_and_routing(tmp_path) -> None:
+    client, _ = _client(tmp_path)
+    client.app.state.routing_config_store.proxy_available = lambda: True
+    before = client.app.state.production_pipeline_config_store.get_pipeline("pipeline-3")
+    pipeline = dict(before)
+    pipeline["google_image_model"] = "models/legacy-compatible-image"
+
+    with client:
+        pipeline_response = client.put(
+            "/internal/production/config",
+            json={"action": "pipeline", "pipeline": "pipeline-3", "config": pipeline},
+        )
+        routing_response = client.put(
+            "/internal/production/config",
+            json={
+                "action": "routing",
+                "enabled": True,
+                "vless_uri": (
+                    "vless://11111111-1111-4111-8111-111111111111@proxy.example.com:2443"
+                    "?encryption=none&flow=xtls-rprx-vision&security=reality"
+                    "&sni=www.example.com&fp=firefox"
+                    "&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                    "&sid=0123456789abcdef&type=tcp&headerType=none#Example"
+                ),
+            },
+        )
+
+    assert pipeline_response.status_code == 200
+    assert pipeline_response.json()["config"]["google_image_model"] == (
+        "legacy-compatible-image"
+    )
+    assert routing_response.status_code == 200
+    assert routing_response.json() == {
+        "enabled": True,
+        "configured": True,
+        "mode": "vless",
+    }
+
+
+def test_legacy_gateway_google_key_route_updates_pipeline_key(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        production_routes, "GoogleKeyValidator", _AcceptingPipelineValidator
+    )
+    client, store = _client(tmp_path)
+    secret = "pipeline-three-google-key-1234567890"
+
+    with client:
+        saved = client.put(
+            "/internal/production/google-key",
+            json={"pipeline": "pipeline-3", "google_api_key": secret},
+        )
+        cleared = client.delete(
+            "/internal/production/google-key?pipeline=pipeline-3"
+        )
+
+    assert saved.status_code == cleared.status_code == 200
+    assert saved.json() == {
+        "google_key": {"configured": True, "source": "volume"},
+        "pipeline": "pipeline-3",
+    }
+    assert store.get_google_api_key("pipeline-3") == ""
 
 
 def test_pipeline_configuration_update_is_isolated_and_applied(tmp_path) -> None:

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from app.api.errors import MoonliError
+from app.api.routes.routing import save_routing_configuration
 from app.composition import apply_production_pipeline_configuration
 from app.services.google_key_validator import GoogleKeyValidator
 from app.services.production_requests import build_production_request_templates
@@ -20,7 +22,7 @@ router = APIRouter(prefix="/internal/production", include_in_schema=False)
 INTEGRATION_DIRECTORY = (
     Path(__file__).resolve().parents[3] / "integrations" / "touchdesigner"
 )
-PIPELINE_3_NORMALIZE_REQUEST = """POST /v1/normalize HTTP/1.1
+PIPELINE_3_NORMALIZE_REQUEST = """POST /v1/generate HTTP/1.1
 Host: moonli.shmoza.net
 Authorization: Bearer <MOONLI_ACCESS_KEY>
 X-Moonli-Device-Id: td-########
@@ -79,6 +81,29 @@ class ProductionGoogleKeyUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     google_api_key: SecretStr = Field(min_length=16, max_length=512)
+    pipeline: str | None = None
+
+
+class ProductionPipelineControlUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["pipeline"]
+    pipeline: str
+    config: dict[str, object]
+
+
+class ProductionRoutingControlUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["routing"]
+    enabled: bool
+    vless_uri: SecretStr | None = Field(default=None, max_length=4096)
+
+
+ProductionControlUpdate = Annotated[
+    ProductionPipelineControlUpdate | ProductionRoutingControlUpdate,
+    Field(discriminator="action"),
+]
 
 
 def _authorize(request: Request, *, mutate: bool = False) -> Settings:
@@ -101,6 +126,59 @@ def _pipeline_config_store(request: Request) -> ProductionPipelineConfigStore:
     )
     request.app.state.production_pipeline_config_store = store
     return store
+
+
+def _pipeline_3_integration_payload() -> dict[str, object]:
+    try:
+        transcription_script = (
+            INTEGRATION_DIRECTORY / "pipeline3_transcription.py"
+        ).read_text(encoding="utf-8")
+        generation_script = (
+            INTEGRATION_DIRECTORY / "pipeline3_generation.py"
+        ).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise MoonliError(
+            "INTEGRATION_ASSET_UNAVAILABLE",
+            "The TouchDesigner integration assets are unavailable.",
+            500,
+        ) from exc
+    return {
+        "pipeline": "pipeline-3",
+        "requests": [
+            {
+                "id": "normalize-audio",
+                "title": "1 · Audio transcription and normalization",
+                "content": PIPELINE_3_NORMALIZE_REQUEST,
+            },
+            {
+                "id": "generate-images",
+                "title": "2 · Generate three images",
+                "content": PIPELINE_3_GENERATE_REQUEST,
+            },
+        ],
+        "scripts": [
+            {
+                "id": "touchdesigner-transcription",
+                "title": "1 · TouchDesigner transcription script",
+                "filename": "pipeline3_transcription.py",
+                "content": transcription_script,
+            },
+            {
+                "id": "touchdesigner-generation",
+                "title": "2 · TouchDesigner generation script",
+                "filename": "pipeline3_generation.py",
+                "content": generation_script,
+            },
+        ],
+        "installation": {
+            "required_change": (
+                "Set MOONLI_ACCESS_KEY in the TouchDesigner process environment or "
+                "replace PASTE_MOONLI_ACCESS_KEY_HERE in both scripts."
+            ),
+            "shared_device_identity": ".moonli/device_id.txt",
+            "domain": "https://moonli.shmoza.net",
+        },
+    }
 
 
 def _payload(request: Request, settings: Settings) -> dict[str, object]:
@@ -194,8 +272,104 @@ def _payload(request: Request, settings: Settings) -> dict[str, object]:
             "storage": "docker-volume",
             "requests": build_production_request_templates(settings, profiles),
             "pipelines": production_pipelines,
+            "pipeline_3_integration": _pipeline_3_integration_payload(),
         },
+        "routing": request.app.state.routing_config_store.status(),
     }
+
+
+def _require_pipeline(pipeline: str) -> str:
+    if pipeline not in PIPELINE_IDS:
+        raise MoonliError("INVALID_PIPELINE", "Unknown production pipeline.", 404)
+    return pipeline
+
+
+def _save_pipeline_config(
+    request: Request, pipeline: str, payload: dict[str, object]
+) -> dict[str, object]:
+    pipeline = _require_pipeline(pipeline)
+    try:
+        stored = _pipeline_config_store(request).set_pipeline(pipeline, payload)
+        apply_production_pipeline_configuration(request.app)
+    except (TypeError, ValueError) as exc:
+        raise MoonliError("INVALID_SETTINGS", str(exc), 422) from exc
+    request.app.state.audit_store.append(
+        action="production.pipeline.update",
+        outcome="success",
+        summary="Production pipeline configuration was updated.",
+        target_type="pipeline",
+        target_id=pipeline,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    return {"pipeline": pipeline, "config": stored}
+
+
+async def _save_google_key(
+    request: Request,
+    settings: Settings,
+    value: str,
+    pipeline: str | None,
+) -> dict[str, object]:
+    if pipeline is None:
+        validator = request.app.state.google_key_validator
+    else:
+        pipeline = _require_pipeline(pipeline)
+        configuration = _pipeline_config_store(request).get_pipeline(pipeline)
+        validator = GoogleKeyValidator(
+            str(configuration["google_api_base_url"]),
+            float(configuration["google_timeout_seconds"]),
+            request.app.state.routing_config_store.proxy_url,
+        )
+    await validator.validate(value)
+    request.app.state.production_secret_store.set_google_api_key(value, pipeline)
+    request.app.state.audit_store.append(
+        action="production.google_key.update",
+        outcome="success",
+        summary=(
+            "A pipeline Google API key was validated and replaced."
+            if pipeline
+            else "Production Google API key was validated and replaced."
+        ),
+        target_type="credential",
+        target_id=(f"google-api-key:{pipeline}" if pipeline else "google-api-key"),
+        request_id=getattr(request.state, "request_id", None),
+    )
+    result = {
+        "google_key": request.app.state.production_secret_store.status(
+            settings.google_api_key, pipeline
+        )
+    }
+    if pipeline:
+        result["pipeline"] = pipeline
+    return result
+
+
+def _clear_google_key(
+    request: Request, settings: Settings, pipeline: str | None
+) -> dict[str, object]:
+    if pipeline is not None:
+        pipeline = _require_pipeline(pipeline)
+    request.app.state.production_secret_store.clear_google_api_key(pipeline)
+    request.app.state.audit_store.append(
+        action="production.google_key.clear",
+        outcome="success",
+        summary=(
+            "A pipeline Google API key was removed."
+            if pipeline
+            else "Production Google API key was removed."
+        ),
+        target_type="credential",
+        target_id=(f"google-api-key:{pipeline}" if pipeline else "google-api-key"),
+        request_id=getattr(request.state, "request_id", None),
+    )
+    result = {
+        "google_key": request.app.state.production_secret_store.status(
+            settings.google_api_key, pipeline
+        )
+    }
+    if pipeline:
+        result["pipeline"] = pipeline
+    return result
 
 
 @router.get("/config")
@@ -208,63 +382,37 @@ def production_config(
     return _payload(request, settings)
 
 
+@router.put("/config")
+def update_production_control(
+    payload: ProductionControlUpdate,
+    request: Request,
+    response: Response,
+) -> dict[str, object]:
+    _authorize(request, mutate=True)
+    if isinstance(payload, ProductionPipelineControlUpdate):
+        result = _save_pipeline_config(request, payload.pipeline, payload.config)
+    else:
+        result = save_routing_configuration(
+            request,
+            enabled=payload.enabled,
+            vless_uri=(
+                payload.vless_uri.get_secret_value()
+                if payload.vless_uri is not None
+                else None
+            ),
+        )
+    response.headers["Cache-Control"] = "no-store"
+    return result
+
+
 @router.get("/pipelines/pipeline-3/integration")
 def pipeline_3_integration_kit(
     request: Request,
     response: Response,
 ) -> dict[str, object]:
     _authorize(request)
-    try:
-        transcription_script = (
-            INTEGRATION_DIRECTORY / "pipeline3_transcription.py"
-        ).read_text(encoding="utf-8")
-        generation_script = (
-            INTEGRATION_DIRECTORY / "pipeline3_generation.py"
-        ).read_text(encoding="utf-8")
-    except OSError as exc:
-        raise MoonliError(
-            "INTEGRATION_ASSET_UNAVAILABLE",
-            "The TouchDesigner integration assets are unavailable.",
-            500,
-        ) from exc
     response.headers["Cache-Control"] = "no-store"
-    return {
-        "pipeline": "pipeline-3",
-        "requests": [
-            {
-                "id": "normalize-audio",
-                "title": "1 · Audio transcription and normalization",
-                "content": PIPELINE_3_NORMALIZE_REQUEST,
-            },
-            {
-                "id": "generate-images",
-                "title": "2 · Generate three images",
-                "content": PIPELINE_3_GENERATE_REQUEST,
-            },
-        ],
-        "scripts": [
-            {
-                "id": "touchdesigner-transcription",
-                "title": "1 · TouchDesigner transcription script",
-                "filename": "pipeline3_transcription.py",
-                "content": transcription_script,
-            },
-            {
-                "id": "touchdesigner-generation",
-                "title": "2 · TouchDesigner generation script",
-                "filename": "pipeline3_generation.py",
-                "content": generation_script,
-            },
-        ],
-        "installation": {
-            "required_change": (
-                "Set MOONLI_ACCESS_KEY in the TouchDesigner process environment or "
-                "replace PASTE_MOONLI_ACCESS_KEY_HERE in both scripts."
-            ),
-            "shared_device_identity": ".moonli/device_id.txt",
-            "domain": "https://moonli.shmoza.net",
-        },
-    }
+    return _pipeline_3_integration_payload()
 
 
 @router.get("/stats")
@@ -289,38 +437,21 @@ async def update_production_google_key(
 ) -> dict[str, object]:
     settings = _authorize(request, mutate=True)
     value = payload.google_api_key.get_secret_value()
-    await request.app.state.google_key_validator.validate(value)
-    request.app.state.production_secret_store.set_google_api_key(value)
-    request.app.state.audit_store.append(
-        action="production.google_key.update",
-        outcome="success",
-        summary="Production Google API key was validated and replaced.",
-        target_type="credential",
-        target_id="google-api-key",
-        request_id=getattr(request.state, "request_id", None),
-    )
+    result = await _save_google_key(request, settings, value, payload.pipeline)
     response.headers["Cache-Control"] = "no-store"
-    return {
-        "google_key": request.app.state.production_secret_store.status(
-            settings.google_api_key
-        )
-    }
+    return result
 
 
 @router.delete("/google-key")
-def clear_production_google_key(request: Request, response: Response) -> dict[str, object]:
+def clear_production_google_key(
+    request: Request,
+    response: Response,
+    pipeline: str | None = Query(default=None),
+) -> dict[str, object]:
     settings = _authorize(request, mutate=True)
-    request.app.state.production_secret_store.clear_google_api_key()
-    request.app.state.audit_store.append(
-        action="production.google_key.clear",
-        outcome="success",
-        summary="Production Google API key was removed.",
-        target_type="credential",
-        target_id="google-api-key",
-        request_id=getattr(request.state, "request_id", None),
-    )
+    result = _clear_google_key(request, settings, pipeline)
     response.headers["Cache-Control"] = "no-store"
-    return {"google_key": request.app.state.production_secret_store.status(settings.google_api_key)}
+    return result
 
 
 @router.put("/pipelines/{pipeline}/config")
@@ -331,25 +462,9 @@ def update_pipeline_config(
     response: Response,
 ) -> dict[str, object]:
     _authorize(request, mutate=True)
-    if pipeline not in PIPELINE_IDS:
-        raise MoonliError("INVALID_PIPELINE", "Unknown production pipeline.", 404)
-    try:
-        stored = _pipeline_config_store(request).set_pipeline(
-            pipeline, payload
-        )
-        apply_production_pipeline_configuration(request.app)
-    except (TypeError, ValueError) as exc:
-        raise MoonliError("INVALID_SETTINGS", str(exc), 422) from exc
-    request.app.state.audit_store.append(
-        action="production.pipeline.update",
-        outcome="success",
-        summary="Production pipeline configuration was updated.",
-        target_type="pipeline",
-        target_id=pipeline,
-        request_id=getattr(request.state, "request_id", None),
-    )
+    result = _save_pipeline_config(request, pipeline, payload)
     response.headers["Cache-Control"] = "no-store"
-    return {"pipeline": pipeline, "config": stored}
+    return result
 
 
 @router.put("/pipelines/{pipeline}/google-key")
@@ -360,32 +475,12 @@ async def update_pipeline_google_key(
     response: Response,
 ) -> dict[str, object]:
     settings = _authorize(request, mutate=True)
-    if pipeline not in PIPELINE_IDS:
-        raise MoonliError("INVALID_PIPELINE", "Unknown production pipeline.", 404)
-    configuration = _pipeline_config_store(request).get_pipeline(pipeline)
-    validator = GoogleKeyValidator(
-        str(configuration["google_api_base_url"]),
-        float(configuration["google_timeout_seconds"]),
-        request.app.state.routing_config_store.proxy_url,
-    )
+    if payload.pipeline is not None and payload.pipeline != pipeline:
+        raise MoonliError("INVALID_PIPELINE", "Pipeline fields do not match.", 422)
     value = payload.google_api_key.get_secret_value()
-    await validator.validate(value)
-    request.app.state.production_secret_store.set_google_api_key(value, pipeline)
-    request.app.state.audit_store.append(
-        action="production.google_key.update",
-        outcome="success",
-        summary="A pipeline Google API key was validated and replaced.",
-        target_type="credential",
-        target_id=f"google-api-key:{pipeline}",
-        request_id=getattr(request.state, "request_id", None),
-    )
+    result = await _save_google_key(request, settings, value, pipeline)
     response.headers["Cache-Control"] = "no-store"
-    return {
-        "pipeline": pipeline,
-        "google_key": request.app.state.production_secret_store.status(
-            settings.google_api_key, pipeline
-        ),
-    }
+    return result
 
 
 @router.delete("/pipelines/{pipeline}/google-key")
@@ -393,21 +488,6 @@ def clear_pipeline_google_key(
     pipeline: str, request: Request, response: Response
 ) -> dict[str, object]:
     settings = _authorize(request, mutate=True)
-    if pipeline not in PIPELINE_IDS:
-        raise MoonliError("INVALID_PIPELINE", "Unknown production pipeline.", 404)
-    request.app.state.production_secret_store.clear_google_api_key(pipeline)
-    request.app.state.audit_store.append(
-        action="production.google_key.clear",
-        outcome="success",
-        summary="A pipeline Google API key was removed.",
-        target_type="credential",
-        target_id=f"google-api-key:{pipeline}",
-        request_id=getattr(request.state, "request_id", None),
-    )
+    result = _clear_google_key(request, settings, pipeline)
     response.headers["Cache-Control"] = "no-store"
-    return {
-        "pipeline": pipeline,
-        "google_key": request.app.state.production_secret_store.status(
-            settings.google_api_key, pipeline
-        ),
-    }
+    return result

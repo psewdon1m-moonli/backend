@@ -164,6 +164,8 @@ async def disable_web_ui_cache(request, call_next):
         "/internal/updates/install",
         "/internal/updater/restore",
         "/internal/routing",
+        "/internal/production/config",
+        "/internal/production/google-key",
     }
     requires_lock = (
         request.method in {"POST", "PUT", "DELETE"}
