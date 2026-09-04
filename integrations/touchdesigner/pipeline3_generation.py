@@ -34,8 +34,8 @@ import zipfile
 API_BASE_URL = "https://moonli.shmoza.net"
 
 # This is the Moonli client access key, not the Google API key.
-# Prefer setting MOONLI_ACCESS_KEY in the TouchDesigner process environment.
-API_KEY = os.getenv("MOONLI_ACCESS_KEY", "PASTE_MOONLI_ACCESS_KEY_HERE").strip()
+# Paste only the key value: without "Bearer", quotes from .env, or the variable name.
+API_KEY = "PASTE_MOONLI_ACCESS_KEY_HERE".strip()
 
 IMAGE_SAVE_BASE = os.path.join(project.folder, "generated", "image")
 EXPECTED_IMAGE_NAMES = ("image_1.jpg", "image_2.jpg", "image_3.jpg")
@@ -57,8 +57,7 @@ JPEG_SOF_MARKERS = {
 def _require_access_key():
     if not API_KEY or API_KEY == "PASTE_MOONLI_ACCESS_KEY_HERE":
         raise RuntimeError(
-            "Moonli access key is not configured. Set MOONLI_ACCESS_KEY "
-            "or replace API_KEY in this script."
+            "Moonli access key is not configured. Replace API_KEY in this script."
         )
     return API_KEY
 

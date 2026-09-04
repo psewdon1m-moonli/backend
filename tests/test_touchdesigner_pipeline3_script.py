@@ -54,8 +54,6 @@ def test_touchdesigner_pipeline_3_scripts_share_identity_and_configure_credentia
         assert contract in transcription
         assert contract in generation
 
-    assert 'API_KEY = "PASTE_MOONLI_ACCESS_KEY_HERE".strip()' in transcription
-    assert (
-        'os.getenv("MOONLI_ACCESS_KEY", "PASTE_MOONLI_ACCESS_KEY_HERE")'
-        in generation
-    )
+    direct_key_contract = 'API_KEY = "PASTE_MOONLI_ACCESS_KEY_HERE".strip()'
+    assert direct_key_contract in transcription
+    assert direct_key_contract in generation
