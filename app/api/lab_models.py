@@ -29,6 +29,9 @@ class GoogleOptions(LabModel):
     google_image_model: str = Field(default="", max_length=160)
     google_transcription_model: str = Field(default="", max_length=160)
     google_normalization_model: str = Field(default="", max_length=160)
+    google_translation_model: str = Field(
+        default="gemini-2.5-flash", max_length=160
+    )
     timeout_seconds: float = Field(default=180, ge=1, le=300)
     aspect_ratio: str = Field(default="1:1", max_length=16)
     image_size: str = Field(default="1K", max_length=8)

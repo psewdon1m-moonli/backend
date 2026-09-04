@@ -12,9 +12,10 @@ from pathlib import Path
 
 from app.api.errors import MoonliError
 from app.domain.inputs import GenerationInput
-from app.providers.errors import ProviderError
+from app.providers.errors import NoVisualSubjectError, ProviderError
 from app.providers.image_generation.variants import ImageVariantGenerator
 from app.providers.prompt_normalization.base import PromptNormalizer
+from app.providers.prompt_translation.base import PromptTranslator
 from app.services.input_resolver import InputResolver
 from app.storage.artifact_store import LocalArtifactStore
 from app.storage.run_repository import SqliteRunRepository
@@ -41,6 +42,7 @@ class Pipeline3Service:
         *,
         input_resolver: InputResolver,
         prompt_normalizer: PromptNormalizer,
+        prompt_translator: PromptTranslator,
         image_generator: ImageVariantGenerator,
         artifact_store: LocalArtifactStore,
         run_repository: SqliteRunRepository,
@@ -48,6 +50,7 @@ class Pipeline3Service:
     ) -> None:
         self._input_resolver = input_resolver
         self._prompt_normalizer = prompt_normalizer
+        self._prompt_translator = prompt_translator
         self._image_generator = image_generator
         self._artifacts = artifact_store
         self._runs = run_repository
@@ -58,6 +61,7 @@ class Pipeline3Service:
         return {
             "transcription": self._input_resolver.transcriber_name,
             "normalization": self._prompt_normalizer.name,
+            "translation": self._prompt_translator.name,
             "image": self._image_generator.name,
         }
 
@@ -96,6 +100,10 @@ class Pipeline3Service:
             self._runs.set_stage(run_id, "NORMALIZING_PROMPT")
             try:
                 normalized = await self._prompt_normalizer.normalize(resolved.text)
+            except NoVisualSubjectError as exc:
+                raise MoonliError(
+                    "NO_VISUAL_SUBJECT", "Say what you want to draw.", 422
+                ) from exc
             except ProviderError as exc:
                 raise MoonliError(
                     "PROMPT_NORMALIZATION_FAILED",
@@ -163,17 +171,26 @@ class Pipeline3Service:
             self._runs.set_input(run_id, normalized_text, None)
             self._runs.set_stage(run_id, "INPUT_VALIDATED")
             self._runs.set_stage(run_id, "TEXT_READY")
+            self._runs.set_stage(run_id, "TRANSLATING_PROMPT")
+            try:
+                prompt = await self._prompt_translator.translate(normalized_text)
+            except ProviderError as exc:
+                raise MoonliError(
+                    "PROMPT_TRANSLATION_FAILED",
+                    "Unable to translate the visual request into English.",
+                    502,
+                ) from exc
             self._runs.set_prompt_trace(
                 run_id,
                 normalized_text=normalized_text,
                 transcription=None,
                 visual_brief={"subject": normalized_text},
-                prompt=normalized_text,
+                prompt=prompt,
             )
             self._runs.set_stage(run_id, "PROMPT_READY")
             self._runs.set_stage(run_id, "GENERATING")
             try:
-                images = await self._image_generator.generate(normalized_text)
+                images = await self._image_generator.generate(prompt)
             except ProviderError as exc:
                 raise MoonliError(
                     "IMAGE_GENERATION_FAILED", "Unable to generate three images.", 502
@@ -250,10 +267,24 @@ class Pipeline3Service:
             self._runs.set_stage(run_id, "NORMALIZING_PROMPT")
             try:
                 normalized = await self._prompt_normalizer.normalize(resolved.text)
+            except NoVisualSubjectError as exc:
+                raise MoonliError(
+                    "NO_VISUAL_SUBJECT", "Say what you want to draw.", 422
+                ) from exc
             except ProviderError as exc:
                 raise MoonliError(
                     "PROMPT_NORMALIZATION_FAILED",
                     "Unable to normalize the visual request.",
+                    502,
+                ) from exc
+            self._runs.set_stage(run_id, "TEXT_NORMALIZED")
+            self._runs.set_stage(run_id, "TRANSLATING_PROMPT")
+            try:
+                prompt = await self._prompt_translator.translate(normalized)
+            except ProviderError as exc:
+                raise MoonliError(
+                    "PROMPT_TRANSLATION_FAILED",
+                    "Unable to translate the visual request into English.",
                     502,
                 ) from exc
             self._runs.set_prompt_trace(
@@ -261,12 +292,12 @@ class Pipeline3Service:
                 normalized_text=normalized,
                 transcription=resolved.transcription,
                 visual_brief={"subject": normalized},
-                prompt=normalized,
+                prompt=prompt,
             )
-            self._runs.set_stage(run_id, "TEXT_NORMALIZED")
+            self._runs.set_stage(run_id, "PROMPT_READY")
             self._runs.set_stage(run_id, "GENERATING")
             try:
-                images = await self._image_generator.generate(normalized)
+                images = await self._image_generator.generate(prompt)
             except ProviderError as exc:
                 raise MoonliError(
                     "IMAGE_GENERATION_FAILED", "Unable to generate three images.", 502

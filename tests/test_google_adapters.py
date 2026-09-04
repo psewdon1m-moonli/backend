@@ -11,7 +11,7 @@ from PIL import Image
 from app.domain.inputs import AudioInput
 from app.domain.profiles import Palette, PipelineProfile
 from app.domain.prompts import GenerationPrompt, VisualBrief
-from app.providers.errors import ProviderError
+from app.providers.errors import NoVisualSubjectError, ProviderError
 from app.providers.image_generation import google as image_google
 from app.providers.prompt_normalization import google as normalization_google
 from app.providers.transcription import google as transcription_google
@@ -217,8 +217,108 @@ def test_google_prompt_normalizer_preserves_structured_negative_constraints(
 
     assert result == "moonlit garden with a red tree and a tiger. without people"
     schema = _Client.captured["json"]["generationConfig"]["responseSchema"]
-    assert schema["required"] == ["subject", "must_include", "must_avoid"]
+    assert schema["required"] == [
+        "is_visual_request",
+        "subject",
+        "must_include",
+        "must_avoid",
+    ]
     assert "peoplebut" in _Client.captured["json"]["contents"][0]["parts"][0]["text"]
+
+
+def test_google_prompt_normalizer_renders_pipeline_3_constraints_in_russian(
+    monkeypatch,
+) -> None:
+    _Client.response_payload = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": (
+                                '{"is_visual_request":true,'
+                                '"subject":"лунный сад с тигром",'
+                                '"must_include":["красное дерево"],'
+                                '"must_avoid":["люди"]}'
+                            )
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    monkeypatch.setattr(normalization_google.httpx, "AsyncClient", _Client)
+    adapter = normalization_google.GooglePromptNormalizer(
+        "https://google.invalid/v1beta",
+        "secret",
+        "normalization-model",
+        12,
+        output_language="russian",
+    )
+
+    result = asyncio.run(adapter.normalize("Лунный сад с тигром, без людей"))
+
+    assert result == "лунный сад с тигром. включить: красное дерево. исключить: люди"
+
+
+def test_google_prompt_normalizer_classifies_missing_visual_subject(monkeypatch) -> None:
+    _Client.response_payload = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": (
+                                '{"is_visual_request":false,"subject":"",'
+                                '"must_include":[],"must_avoid":[]}'
+                            )
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    _Client.captured = {}
+    monkeypatch.setattr(normalization_google.httpx, "AsyncClient", _Client)
+    adapter = normalization_google.GooglePromptNormalizer(
+        "https://google.invalid/v1beta", "secret", "normalization-model", 12
+    )
+
+    with pytest.raises(NoVisualSubjectError, match="no visual subject"):
+        asyncio.run(adapter.normalize("Там впереди направо."))
+
+    instruction = _Client.captured["json"]["contents"][0]["parts"][0]["text"]
+    assert "Do not invent a subject" in instruction
+
+
+def test_google_prompt_normalizer_rejects_empty_declared_visual_subject(
+    monkeypatch,
+) -> None:
+    _Client.response_payload = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": (
+                                '{"is_visual_request":true,"subject":"",'
+                                '"must_include":[],"must_avoid":[]}'
+                            )
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    monkeypatch.setattr(normalization_google.httpx, "AsyncClient", _Client)
+    adapter = normalization_google.GooglePromptNormalizer(
+        "https://google.invalid/v1beta", "secret", "normalization-model", 12
+    )
+
+    with pytest.raises(ProviderError, match="response was invalid") as error:
+        asyncio.run(adapter.normalize("Нарисуй яблоню"))
+
+    assert not isinstance(error.value, NoVisualSubjectError)
 
 
 def test_google_prompt_normalizer_rejects_dropped_negative_constraints(monkeypatch) -> None:

@@ -14,7 +14,7 @@ from app.api.errors import MoonliError
 from app.domain.images import ImageAsset
 from app.domain.inputs import GenerationInput
 from app.domain.profiles import PipelineProfile
-from app.providers.errors import ProviderError
+from app.providers.errors import NoVisualSubjectError, ProviderError
 from app.providers.image_generation.base import ImageGenerator
 from app.providers.prompt_normalization.base import PromptNormalizer
 from app.services.input_resolver import InputResolver
@@ -143,6 +143,10 @@ class GenerationService:
             normalization_started = time.perf_counter()
             try:
                 normalized_prompt = await self._prompt_normalizer.normalize(normalized.text)
+            except NoVisualSubjectError as exc:
+                raise MoonliError(
+                    "NO_VISUAL_SUBJECT", "Say what you want to draw.", 422
+                ) from exc
             except ProviderError as exc:
                 self._metrics.increment(
                     "moonli_provider_errors_total", provider=self._prompt_normalizer.name

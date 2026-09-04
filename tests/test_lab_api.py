@@ -16,6 +16,7 @@ from app.api.errors import install_error_handlers
 from app.api.routes import lab as lab_routes
 from app.api.routes.lab import router
 from app.composition import build_components
+from app.providers.errors import NoVisualSubjectError
 from app.providers.image_generation.variants import MockImageVariantGenerator
 from app.providers.prompt_normalization import google as normalization_google
 from app.providers.prompt_normalization.mock import MockPromptNormalizer
@@ -59,6 +60,13 @@ class _NormalizationClient:
 
 class _ProductionNormalizer(MockPromptNormalizer):
     name = "google"
+
+
+class _NoVisualSubjectNormalizer(MockPromptNormalizer):
+    name = "google"
+
+    async def normalize(self, text: str) -> str:
+        raise NoVisualSubjectError("The request contains no visual subject")
 
 
 class _ProductionImageVariants(MockImageVariantGenerator):
@@ -213,6 +221,30 @@ def test_lab_prompt_normalization_is_a_separate_authenticated_stage(tmp_path) ->
     assert response.status_code == 200
     assert response.json()["provider"] == "mock"
     assert response.json()["normalized_text"] == "Привет, сделай яблоню с красными яблоками"
+
+
+def test_lab_prompt_normalization_reports_missing_visual_subject(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        lab_routes,
+        "_make_prompt_normalizer",
+        lambda *args, **kwargs: _NoVisualSubjectNormalizer(),
+    )
+    with _client(tmp_path) as client:
+        response = client.post(
+            "/internal/test/normalize",
+            headers=_headers(),
+            json={"provider": "mock", "text": "Там впереди направо."},
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": {
+            "code": "NO_VISUAL_SUBJECT",
+            "message": "Say what you want to draw.",
+        }
+    }
 
 
 def test_lab_palette_and_layer_package_stages(tmp_path) -> None:
@@ -472,6 +504,7 @@ def test_lab_full_pipeline_supports_pipeline_3_text_and_audio(tmp_path) -> None:
                 assert image.format == "JPEG"
     assert {
         "text/normalized.txt",
+        "prompt/prompt.txt",
         "images/image_1.jpg",
         "images/image_2.jpg",
         "images/image_3.jpg",
@@ -484,10 +517,10 @@ def test_lab_full_pipeline_supports_pipeline_3_text_and_audio(tmp_path) -> None:
     assert text_manifest["palette_version"] is None
     text_stages = {stage["name"]: stage for stage in text_manifest["stages"]}
     assert text_stages["normalization"]["status"] == "included"
+    assert text_stages["prompt_building"]["status"] == "included"
     assert text_stages["image_generation"]["status"] == "included"
     for stage in (
         "transcription",
-        "prompt_building",
         "quantization",
         "validation",
         "vectorization",

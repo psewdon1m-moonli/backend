@@ -26,6 +26,7 @@ class Settings:
     google_image_model: str
     google_transcription_model: str
     google_normalization_model: str
+    google_translation_model: str
     google_timeout_seconds: float
     google_image_aspect_ratio: str
     google_image_size: str
@@ -85,6 +86,9 @@ class Settings:
             google_image_model=os.getenv("MOONLI_GOOGLE_IMAGE_MODEL", "").strip(),
             google_transcription_model=os.getenv("MOONLI_GOOGLE_TRANSCRIPTION_MODEL", "").strip(),
             google_normalization_model=os.getenv("MOONLI_GOOGLE_NORMALIZATION_MODEL", "").strip(),
+            google_translation_model=os.getenv(
+                "MOONLI_GOOGLE_TRANSLATION_MODEL", "gemini-2.5-flash"
+            ).strip(),
             google_timeout_seconds=float(os.getenv("MOONLI_GOOGLE_TIMEOUT_SECONDS", "180")),
             google_image_aspect_ratio=os.getenv("MOONLI_GOOGLE_IMAGE_ASPECT_RATIO", "1:1").strip(),
             google_image_size=os.getenv("MOONLI_GOOGLE_IMAGE_SIZE", "1K").strip(),

@@ -13,21 +13,29 @@ from app.providers.credentials import (
     resolve_google_api_key,
     validate_google_api_key_source,
 )
-from app.providers.errors import ProviderError
+from app.providers.errors import NoVisualSubjectError, ProviderError
 from app.providers.proxy import ProxyUrlSource, resolve_proxy_url
 
 MODEL_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 WHITESPACE = re.compile(r"\s+")
 SOURCE_AVOIDANCE = re.compile(
     r"\b(without|avoid|excluding|exclude|must not|do not|no)\b|"
-    r"(?:^|\s)(без|никаких|избег\w*|не\s+долж\w*|не\s+добав\w*|не\s+рис\w*)",
+    r"(?:^|\s)(без|никаких|исключ\w*|избег\w*|не\s+долж\w*|не\s+добав\w*|не\s+рис\w*)",
     re.IGNORECASE,
 )
 NORMALIZED_AVOIDANCE = re.compile(
-    r"\b(without|avoid|excluding|exclude|must not|do not|no)\b", re.IGNORECASE
+    r"\b(without|avoid|excluding|exclude|must not|do not|no)\b|"
+    r"(?:^|\s)(без|никаких|исключ\w*|избег\w*|не\s+долж\w*|не\s+добав\w*|не\s+рис\w*)",
+    re.IGNORECASE,
 )
 MAX_NORMALIZED_WORDS = 24
 logger = logging.getLogger("moonli.google.normalization")
+VISUAL_REQUEST_CONTRACT = """Classify whether the source contains a concrete visual
+subject that can be drawn. Directional, navigational, operational, and conversational
+phrases without a drawable subject are not visual requests. For those phrases set
+is_visual_request to false, leave subject empty, and return empty constraint arrays.
+Otherwise set is_visual_request to true. Do not invent a subject."""
+
 INSTRUCTION = """You normalize a spoken or typed request for a simple icon generator.
 
 Extract only the concrete visual subject the user wants drawn. Remove greetings,
@@ -47,6 +55,8 @@ Examples:
 - Привет, это тест. А, сделай яблоню с красными яблоками. -> apple tree with red apples
 - I want a cute penguin icon, please. -> cute penguin icon
 - Нарисуй doge на мяче. -> doge on the ball
+- Там впереди направо. ->
+  is_visual_request: false; subject: ""; must_include: []; must_avoid: []
 - A moonlit garden without people but with a tiger. ->
   subject: moonlit garden with a tiger; must_avoid: [people]
 
@@ -59,7 +69,12 @@ def build_normalization_request(text: str, instruction: str = INSTRUCTION) -> di
         "contents": [
             {
                 "parts": [
-                    {"text": f"{instruction}\n<source_text>\n{text}\n</source_text>"}
+                    {
+                        "text": (
+                            f"{instruction}\n\n{VISUAL_REQUEST_CONTRACT}"
+                            f"\n<source_text>\n{text}\n</source_text>"
+                        )
+                    }
                 ]
             }
         ],
@@ -72,6 +87,7 @@ def build_normalization_request(text: str, instruction: str = INSTRUCTION) -> di
             "responseSchema": {
                 "type": "OBJECT",
                 "properties": {
+                    "is_visual_request": {"type": "BOOLEAN"},
                     "subject": {"type": "STRING"},
                     "must_include": {
                         "type": "ARRAY",
@@ -82,7 +98,12 @@ def build_normalization_request(text: str, instruction: str = INSTRUCTION) -> di
                         "items": {"type": "STRING"},
                     },
                 },
-                "required": ["subject", "must_include", "must_avoid"],
+                "required": [
+                    "is_visual_request",
+                    "subject",
+                    "must_include",
+                    "must_avoid",
+                ],
             },
         },
     }
@@ -99,6 +120,7 @@ class GooglePromptNormalizer:
         timeout_seconds: float,
         usage_recorder: Callable[[str, dict[str, object]], None] | None = None,
         instruction: str = INSTRUCTION,
+        output_language: str = "english",
         proxy_url: ProxyUrlSource = None,
     ) -> None:
         validate_google_api_key_source(api_key)
@@ -106,12 +128,15 @@ class GooglePromptNormalizer:
             raise ValueError("Google prompt-normalization model is required")
         if not MODEL_NAME.fullmatch(model):
             raise ValueError("Invalid Google prompt-normalization model name")
+        if output_language not in {"english", "russian"}:
+            raise ValueError("Invalid prompt-normalization output language")
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._model = model
         self._timeout_seconds = timeout_seconds
         self._usage_recorder = usage_recorder
         self._instruction = instruction
+        self._output_language = output_language
         self._proxy_url = proxy_url
 
     async def normalize(self, text: str) -> str:
@@ -158,6 +183,8 @@ class GooglePromptNormalizer:
                     phrase = self._render_structured(parsed)
                 else:
                     phrase = parsed["normalized_prompt"]
+            except NoVisualSubjectError:
+                raise
             except (KeyError, TypeError, ValueError) as exc:
                 raise ProviderError(
                     "Google prompt normalization response was invalid"
@@ -183,25 +210,36 @@ class GooglePromptNormalizer:
         cleaned = WHITESPACE.sub(" ", unicodedata.normalize("NFKC", value)).strip()
         return cleaned.strip(" \t\r\n\"'`.,;:!?-").lower()
 
-    @classmethod
-    def _render_structured(cls, payload: dict[str, object]) -> str:
-        subject = cls._clean_fragment(payload.get("subject"))
+    def _render_structured(self, payload: dict[str, object]) -> str:
+        is_visual_request = payload.get("is_visual_request")
+        if is_visual_request is False:
+            raise NoVisualSubjectError("The request contains no visual subject")
+        if is_visual_request is not None and not isinstance(is_visual_request, bool):
+            raise TypeError("is_visual_request must be a boolean")
+
+        subject = self._clean_fragment(payload.get("subject"))
         if not subject:
-            raise ValueError("Normalized subject is empty")
+            if is_visual_request is None:
+                # Backward compatibility for responses produced against the previous
+                # schema, where an empty subject was the only negative classification.
+                raise NoVisualSubjectError("The request contains no visual subject")
+            raise ValueError("Normalized visual subject is empty")
 
         def fragments(key: str) -> list[str]:
             raw = payload.get(key)
             if not isinstance(raw, list):
                 raise TypeError(f"{key} must be an array")
-            return [fragment for item in raw if (fragment := cls._clean_fragment(item))]
+            return [fragment for item in raw if (fragment := self._clean_fragment(item))]
 
         must_include = fragments("must_include")
         must_avoid = fragments("must_avoid")
         parts = [subject]
         if must_include:
-            parts.append("must include " + ", ".join(must_include))
+            prefix = "включить: " if self._output_language == "russian" else "must include "
+            parts.append(prefix + ", ".join(must_include))
         if must_avoid:
-            parts.append("without " + ", ".join(must_avoid))
+            prefix = "исключить: " if self._output_language == "russian" else "without "
+            parts.append(prefix + ", ".join(must_avoid))
         return ". ".join(parts)
 
     @staticmethod

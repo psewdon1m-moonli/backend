@@ -14,6 +14,7 @@ from PIL import Image
 from app.api.errors import install_error_handlers
 from app.api.routes.generate import router
 from app.composition import build_components
+from app.providers.errors import NoVisualSubjectError
 from app.settings import Settings
 from app.storage.device_registry import DeviceRegistry
 
@@ -53,6 +54,13 @@ def _headers(
     }
 
 
+class _NoVisualSubjectNormalizer:
+    name = "google"
+
+    async def normalize(self, text: str) -> str:
+        raise NoVisualSubjectError("The request contains no visual subject")
+
+
 def test_pipeline_1_text_is_one_post_returning_final_png(tmp_path) -> None:
     with _client(tmp_path) as client:
         response = client.post(
@@ -86,6 +94,30 @@ def test_pipeline_1_text_is_one_post_returning_final_png(tmp_path) -> None:
             "SELECT COUNT(*) FROM production_api_requests"
         ).fetchone()[0]
     assert request_count == 1
+
+
+def test_pipeline_1_returns_actionable_error_for_non_visual_text(tmp_path) -> None:
+    with _client(tmp_path) as client:
+        client.app.state.generation_service._prompt_normalizer = (
+            _NoVisualSubjectNormalizer()
+        )
+        response = client.post(
+            "/v1/generate",
+            headers=_headers("dev-moonli-client-key"),
+            json={
+                "type": "text",
+                "pipeline": "pipeline-1",
+                "text": "Там впереди направо.",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": {
+            "code": "NO_VISUAL_SUBJECT",
+            "message": "Say what you want to draw.",
+        }
+    }
 
 
 def test_pipeline_2_text_with_same_key_returns_recomposable_layer_zip(tmp_path) -> None:

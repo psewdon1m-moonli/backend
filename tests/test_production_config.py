@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import replace
 
 from fastapi import FastAPI
@@ -10,6 +12,12 @@ from app.api.errors import MoonliError, install_error_handlers
 from app.api.routes.production import router
 from app.composition import build_components
 from app.settings import Settings
+from app.storage.production_pipeline_config import (
+    LEGACY_PIPELINE_3_NORMALIZATION_INSTRUCTION,
+    LEGACY_PIPELINE_3_TRANSCRIPTION_INSTRUCTION,
+    PIPELINE_3_NORMALIZATION_INSTRUCTION,
+    PIPELINE_3_TRANSCRIPTION_INSTRUCTION,
+)
 from app.storage.production_secret_store import ProductionSecretStore
 
 
@@ -108,19 +116,22 @@ def test_rejected_google_key_does_not_replace_saved_secret(tmp_path) -> None:
     assert store.get_google_api_key() == original
 
 
-def test_production_config_contains_two_client_and_four_internal_requests(tmp_path) -> None:
+def test_production_config_contains_translation_request_and_pipeline_3_defaults(
+    tmp_path,
+) -> None:
     client, _ = _client(tmp_path)
     with client:
         response = client.get("/internal/production/config", headers=_headers())
 
     assert response.status_code == 200
     requests = response.json()["production"]["requests"]
-    assert len(requests) == 6
+    assert len(requests) == 7
     assert [item["id"] for item in requests] == [
         "client-text",
         "client-audio",
         "google-transcription",
         "google-normalization",
+        "google-translation",
         "google-image-pipeline-1",
         "google-image-pipeline-2",
     ]
@@ -129,11 +140,25 @@ def test_production_config_contains_two_client_and_four_internal_requests(tmp_pa
     assert requests[0]["request"]["headers"]["X-Moonli-Device-Id"]
     assert requests[1]["request"]["headers"]["X-Moonli-Device-Id"]
     assert requests[2]["request"]["url"].endswith(":generateContent")
-    assert requests[4]["request"]["body"] != requests[5]["request"]["body"]
+    assert requests[5]["request"]["body"] != requests[6]["request"]["body"]
     assert "GOOGLE_API_KEY_FROM_VOLUME" in response.text
     pipelines = response.json()["production"]["pipelines"]
     assert set(pipelines) == {"pipeline-1", "pipeline-2", "pipeline-3"}
     assert pipelines["pipeline-3"]["google_image_model"] == "gemini-3-pro-image-preview"
+    assert pipelines["pipeline-3"]["google_transcription_model"] == "gemini-2.5-flash"
+    assert pipelines["pipeline-3"]["google_normalization_model"] == "gemini-2.5-flash"
+    assert pipelines["pipeline-3"]["google_translation_model"] == "gemini-2.5-flash"
+    assert pipelines["pipeline-3"]["transcription_instruction"] == (
+        "You are an advanced speech recognition system. Detect and transcribe speech "
+        "in Turkish, Russian, or English. Write only the text you hear, without any "
+        "explanations."
+    )
+    assert "concise, natural Russian" in pipelines["pipeline-3"][
+        "normalization_instruction"
+    ]
+    assert "concise, natural English" in pipelines["pipeline-3"][
+        "translation_instruction"
+    ]
     assert pipelines["pipeline-3"]["output"] == {
         "type": "jpeg-set",
         "count": 3,
@@ -164,11 +189,26 @@ def test_pipeline_3_integration_kit_contains_two_requests_and_two_scripts(tmp_pa
     ]
     assert "POST /v1/generate HTTP/1.1" in payload["requests"][0]["content"]
     assert "POST /v1/generate HTTP/1.1" in payload["requests"][1]["content"]
-    assert "<NORMALIZED_TEXT_ONLY>" in payload["requests"][0]["content"]
+    assert "<NORMALIZED_RUSSIAN_TEXT_ONLY>" in payload["requests"][0]["content"]
     assert "image_1.jpg" in payload["requests"][1]["content"]
     assert 'op("../answer")' in payload["scripts"][0]["content"]
     assert 'target_op = op("answer")' in payload["scripts"][1]["content"]
-    assert "PASTE_MOONLI_ACCESS_KEY_HERE" in response.text
+    key_pattern = re.compile(r'^API_KEY = "([^"]+)"\.strip\(\)$', re.MULTILINE)
+    transcription_key = key_pattern.search(payload["scripts"][0]["content"])
+    generation_key = key_pattern.search(payload["scripts"][1]["content"])
+    assert transcription_key is not None
+    assert generation_key is not None
+    assert transcription_key.group(1) == generation_key.group(1)
+    assert not transcription_key.group(1).startswith("PASTE_")
+    assert 'op("../index").par.value0 += 1' in payload["scripts"][0]["content"]
+    generation_script = payload["scripts"][1]["content"]
+    assert 'op("index").par.value0 += 1' in generation_script
+    assert "ENABLE_TABLE_ACTIONS" not in generation_script
+    assert '"/AI_SCRIPT2/moviefilein1"' in generation_script
+    assert '"/AI_SCRIPT2/moviefilein2"' in generation_script
+    assert '"/AI_SCRIPT2/moviefilein3"' in generation_script
+    assert '"/AI_SCRIPT2/moviefilein4"' not in generation_script
+    assert '"/Table_1/AI_SCRIPT2/' not in generation_script
     assert "AIza" not in response.text
 
 
@@ -261,6 +301,9 @@ def test_pipeline_configuration_update_is_isolated_and_applied(tmp_path) -> None
     before = client.app.state.production_pipeline_config_store.get()
     pipeline_3 = dict(before["pipelines"]["pipeline-3"])
     pipeline_3["google_image_model"] = "models/custom-pipeline-three-model"
+    pipeline_3["normalization_provider"] = "google"
+    pipeline_3["google_translation_model"] = "models/custom-translation-model"
+    pipeline_3["translation_instruction"] = "Translate only the supplied visual subject."
 
     with client:
         response = client.put(
@@ -277,6 +320,72 @@ def test_pipeline_configuration_update_is_isolated_and_applied(tmp_path) -> None
         "output": pipelines["pipeline-1"]["output"],
     }
     assert pipelines["pipeline-3"]["google_image_model"] == "custom-pipeline-three-model"
+    assert pipelines["pipeline-3"]["google_translation_model"] == (
+        "custom-translation-model"
+    )
+    translator = client.app.state.pipeline3_service._prompt_translator
+    assert translator._model == "custom-translation-model"
+    assert translator._instruction == "Translate only the supplied visual subject."
+
+
+def test_existing_pipeline_3_config_receives_translation_defaults(tmp_path) -> None:
+    client, _ = _client(tmp_path)
+    store = client.app.state.production_pipeline_config_store
+    legacy = store.defaults()
+    pipeline_3 = legacy["pipelines"]["pipeline-3"]
+    del pipeline_3["google_translation_model"]
+    del pipeline_3["translation_instruction"]
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    migrated = store.get_pipeline("pipeline-3")
+
+    assert migrated["google_translation_model"] == "gemini-2.5-flash"
+    assert "concise, natural English" in migrated["translation_instruction"]
+
+
+def test_legacy_pipeline_3_default_instructions_are_upgraded(tmp_path) -> None:
+    client, _ = _client(tmp_path)
+    store = client.app.state.production_pipeline_config_store
+    legacy = store.defaults()
+    pipeline_3 = legacy["pipelines"]["pipeline-3"]
+    pipeline_3["transcription_instruction"] = (
+        LEGACY_PIPELINE_3_TRANSCRIPTION_INSTRUCTION
+    )
+    pipeline_3["normalization_instruction"] = (
+        LEGACY_PIPELINE_3_NORMALIZATION_INSTRUCTION
+    )
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+
+    migrated = store.get_pipeline("pipeline-3")
+
+    assert migrated["transcription_instruction"] == (
+        PIPELINE_3_TRANSCRIPTION_INSTRUCTION
+    )
+    assert migrated["normalization_instruction"] == (
+        PIPELINE_3_NORMALIZATION_INSTRUCTION
+    )
+
+
+def test_custom_pipeline_3_instructions_are_not_replaced(tmp_path) -> None:
+    client, _ = _client(tmp_path)
+    store = client.app.state.production_pipeline_config_store
+    stored = store.defaults()
+    pipeline_3 = stored["pipelines"]["pipeline-3"]
+    pipeline_3["transcription_instruction"] = "Custom transcription instruction."
+    pipeline_3["normalization_instruction"] = "Custom normalization instruction."
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    configured = store.get_pipeline("pipeline-3")
+
+    assert configured["transcription_instruction"] == (
+        "Custom transcription instruction."
+    )
+    assert configured["normalization_instruction"] == (
+        "Custom normalization instruction."
+    )
 
 
 def test_production_config_requires_moonli_authentication(tmp_path) -> None:

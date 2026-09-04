@@ -55,7 +55,7 @@
         <li>Run a text and audio test for each required pipeline, download the artifacts, and verify a logical backup before connecting real clients.</li>
       </ol>
       <p>Each persistent pipeline Google key is verified through Google's models API and written atomically to a pipeline-specific file in the dedicated secrets volume. The backend never returns the value or a mask. Keys are excluded from <code>.env</code>, browser storage, audit, backups, and release artifacts.</p>
-      <p>If direct Google access is region-blocked, open Configuration → Routing, paste a VLESS Reality/TCP/Vision connection, enable the switch, and save. The connection is stored only in the secrets volume and is never returned. The internal Xray sidecar reloads it automatically and has no public host port. Disabling the switch restores direct Google routing.</p>
+      <p>If direct Google access is region-blocked, open Configuration → Routing, paste a VLESS Reality/TCP/Vision connection, enable the switch, and save. The connection is stored only in the secrets volume and is never returned. The internal Xray sidecar reloads it automatically and has no public host port. Transcription, normalization, Pipeline 3 prompt translation, and image generation all follow the selected route. Disabling the switch restores direct Google routing.</p>
     </section>
 
     <section id="api" class="card documentation-section">
@@ -106,7 +106,7 @@ audio=&lt;audio file&gt;</code></pre>
         </tbody>
       </table>
       <p>Normalization is intentionally independent from Prompt Builder. A spoken request can become a phrase such as <code>cute penguin icon</code>; the builder then adds the technical instructions. This prevents greetings, hesitations, and test narration from becoming part of the image subject.</p>
-      <p>Pipeline 3 is the intentional exception after normalization: it sends the concise phrase directly to three independent Google image calls under its configured system instruction. It skips Prompt Builder, quantization, validation, vectorization, and segmentation.</p>
+      <p>Pipeline 3 normalizes every request into concise Russian. During the second client operation, its Prompt Building stage translates that Russian phrase into concise English without adding details, then sends the English prompt to three independent Google image calls under the configured system instruction. English input at the translation boundary passes through unchanged. It skips quantization, validation, vectorization, and segmentation.</p>
     </section>
 
     <section id="artifacts" class="card documentation-section">
@@ -118,7 +118,7 @@ layers/00.png
 ...
 layers/11.png</code></pre>
       <p>The layered contract always contains twelve full-canvas RGBA slots. Unused slots are transparent PNGs with <code>used:false</code>. Every visible pixel is fully opaque and equals its declared palette color; transparent pixels are exactly zero RGBA. The server validates safe relative names, duplicate members, checksums, dimensions, slot ordering, exact colors, alpha, ZIP integrity, and pixel-perfect layer recomposition.</p>
-      <p>The Test Calls full-run ZIP is diagnostic and contains every applicable intermediate plus pipeline and input-type metadata. For pipeline 3 this means source text or audio, optional transcription, normalized text, three 1024×1024 JPEG variants, the nested image ZIP, and an execution trace; Prompt Builder and all post-processing stages are marked <code>not_applicable</code>.</p>
+      <p>The Test Calls full-run ZIP is diagnostic and contains every applicable intermediate plus pipeline and input-type metadata. For pipeline 3 this means source text or audio, optional transcription, normalized Russian text, the translated English prompt, three 1024×1024 JPEG variants, the nested image ZIP, and an execution trace; only the post-processing stages are marked <code>not_applicable</code>.</p>
     </section>
 
     <section id="console" class="card documentation-section">
@@ -173,9 +173,11 @@ curl --fail https://moonli.example.com/health</code></pre>
         <tbody>
           <tr><td><code>INVALID_DEVICE_ID</code></td><td>Use <code>td-########</code> or <code>aa-########</code> and persist it.</td></tr>
           <tr><td><code>DEVICE_BLOCKED</code></td><td>The operator blocked this installation; review it on Devices.</td></tr>
+          <tr><td><code>NO_VISUAL_SUBJECT</code></td><td>Speech was recognized, but it did not say what should be drawn. Ask for a concrete visual subject; do not retry automatically.</td></tr>
           <tr><td><code>UNAUTHORIZED</code></td><td>The Bearer credential is missing or wrong.</td></tr>
           <tr><td><code>GOOGLE_KEY_NOT_CONFIGURED</code></td><td>Save the persistent key on Production.</td></tr>
           <tr><td><code>PROMPT_NORMALIZATION_FAILED</code></td><td>Check normalization model access, endpoint, key, and timeout.</td></tr>
+          <tr><td><code>PROMPT_TRANSLATION_FAILED</code></td><td>Check the Pipeline 3 translation instruction, model access, endpoint, key, and timeout.</td></tr>
           <tr><td><code>GENERATION_IN_PROGRESS</code></td><td>Honor <code>Retry-After</code> and retry the same payload/key.</td></tr>
           <tr><td><code>IDEMPOTENCY_CONFLICT</code></td><td>A changed request reused a key; allocate a new UUID.</td></tr>
           <tr><td><code>RATE_LIMITED</code></td><td>Honor HTTP 429 and <code>Retry-After</code>.</td></tr>

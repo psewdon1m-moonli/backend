@@ -247,7 +247,7 @@ async def generate(
             _ensure_pipeline_credential(
                 request,
                 pipeline,
-                provider_fields=("image_provider",)
+                provider_fields=("image_provider", "normalization_provider")
                 if pipeline == "pipeline-3"
                 else (
                     "image_provider",

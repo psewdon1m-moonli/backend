@@ -63,6 +63,7 @@ def create_prompt_normalizer(
     api_key: GoogleApiKeySource | None = None,
     usage_recorder: Callable[[str, dict[str, object]], None] | None = None,
     instruction: str | None = None,
+    output_language: str = "english",
     proxy_url: ProxyUrlSource = None,
 ) -> PromptNormalizer:
     if settings.normalization_provider == "mock":
@@ -73,6 +74,7 @@ def create_prompt_normalizer(
         model=settings.google_normalization_model,
         timeout_seconds=settings.google_timeout_seconds,
         usage_recorder=usage_recorder,
+        output_language=output_language,
         proxy_url=proxy_url,
         **({"instruction": instruction} if instruction is not None else {}),
     )

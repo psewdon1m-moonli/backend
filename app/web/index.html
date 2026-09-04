@@ -221,6 +221,7 @@
                     <label class="field"><span>Image model</span><input id="googleImageModel" type="text" placeholder="model-name"></label>
                     <label class="field"><span>Transcription model</span><input id="googleTranscriptionModel" type="text" placeholder="model-name"></label>
                     <label class="field"><span>Normalization model</span><input id="googleNormalizationModel" type="text" placeholder="model-name"></label>
+                    <label class="field"><span>Prompt translation model</span><input id="googleTranslationModel" type="text" placeholder="gemini-2.5-flash"></label>
                     <label class="field"><span>Aspect ratio</span><select id="googleAspectRatio"><option>1:1</option><option>2:3</option><option>3:2</option><option>3:4</option><option>4:3</option><option>9:16</option><option>16:9</option></select></label>
                     <label class="field"><span>Image size</span><select id="googleImageSize"><option>1K</option><option>2K</option><option>4K</option></select></label>
                   </div>
@@ -540,7 +541,7 @@
 
               <section id="docs-overview" class="documentation-section">
                 <h3><span>01</span> System overview</h3>
-                <p>Moonli owns three tagged generation profiles. <code>pipeline-1</code> and <code>pipeline-2</code> complete the processed image flow in one <code>POST /v1/generate</code> request. <code>pipeline-3</code> mirrors the production TouchDesigner flow: audio is transcribed and normalized by a multipart <code>POST /v1/generate</code>, then the returned text is sent to the same endpoint as JSON for three independent JPEG variants. The client type never selects or restricts the pipeline.</p>
+                <p>Moonli owns three tagged generation profiles. <code>pipeline-1</code> and <code>pipeline-2</code> complete the processed image flow in one <code>POST /v1/generate</code> request. <code>pipeline-3</code> mirrors the production TouchDesigner flow: audio is transcribed and normalized into concise Russian by a multipart <code>POST /v1/generate</code>; the returned text is sent to the same endpoint as JSON, translated into an English image prompt, and used for three independent JPEG variants. The client type never selects or restricts the pipeline.</p>
                 <div class="documentation-callout"><strong>Production boundary.</strong> Nginx is the only public listener. Public traffic uses the configured HTTPS domain. Test Calls are available in production only through the authenticated operator session and require CSRF protection for mutations. The application port, databases, metrics, storage paths, legacy endpoints, updater catalog, and restore routes are not public.</div>
                 <p>Operator authentication, client authentication, device identity, and pipeline routing are separate concerns:</p>
                 <ul>
@@ -555,7 +556,7 @@
                 <h3><span>02</span> Quick start</h3>
                 <ol>
                   <li>Sign in with the operator Access Key.</li>
-                  <li>Open <strong>Test Calls</strong>, select the test providers and enter the exact enabled model names for transcription, normalization, and image generation.</li>
+                  <li>Open <strong>Test Calls</strong>, select the test providers and enter the exact enabled model names for transcription, normalization, Pipeline 3 prompt translation, and image generation.</li>
                   <li>Enter the temporary test Google key, review the processed-pipeline prompt templates, and save the non-secret test settings.</li>
                   <li>Open <strong>Production</strong> and configure each pipeline independently: Google key, enabled models, provider calls, and instructions. The backend verifies every key before persisting it.</li>
                   <li>Use <strong>Test Calls</strong> to exercise individual stages or download a full-run artifact archive.</li>
@@ -615,7 +616,7 @@ audio=&lt;binary audio file&gt;</code></pre>
                   <thead><tr><th>Stage</th><th>Purpose</th><th>Input → output</th></tr></thead>
                   <tbody>
                     <tr><td>1 · Transcription</td><td>Optional for audio requests.</td><td>Audio → source text</td></tr>
-                    <tr><td>2 · Normalization</td><td>Removes greetings, filler, and test commentary; extracts concise English visual intent.</td><td>Source text → normalized phrase</td></tr>
+                    <tr><td>2 · Normalization</td><td>Removes greetings, filler, and test commentary; Pipelines 1–2 produce English while Pipeline 3 produces Russian.</td><td>Source text → normalized phrase</td></tr>
                     <tr><td>3 · Prompt builder</td><td>Applies the pipeline template, palette contract, canvas, and exclusions.</td><td>Normalized phrase → technical prompt</td></tr>
                     <tr><td>4 · Generation</td><td>Requests an image from the configured provider and converts the response to PNG.</td><td>Prompt → provider PNG</td></tr>
                     <tr><td>5 · Quantization</td><td>Maps every visible pixel to the versioned palette in CIE Lab and optionally removes isolated speckles.</td><td>Provider PNG → strict-palette PNG</td></tr>
@@ -624,12 +625,12 @@ audio=&lt;binary audio file&gt;</code></pre>
                     <tr><td>8 · Segmentation</td><td>Creates the ordered fixed-slot layer package for layered output.</td><td>SVG/PNG → layer ZIP</td></tr>
                   </tbody>
                 </table>
-                <p><code>pipeline-1</code> publishes the validated raster PNG. <code>pipeline-2</code> continues through vectorization and segmentation and publishes a twelve-slot layered package. <code>pipeline-3</code> intentionally stops after generation: its first operation performs transcription and normalization, while its second operation launches three independent image generations without quantization, palette validation, vectorization, or segmentation. The Test Calls page exposes the processed stages independently and lets an operator copy or download its output and pass it into the next stage.</p>
+                <p><code>pipeline-1</code> publishes the validated raster PNG. <code>pipeline-2</code> continues through vectorization and segmentation and publishes a twelve-slot layered package. <code>pipeline-3</code> intentionally stops after generation: its first operation performs transcription and Russian normalization, while its second operation translates the prompt into English and launches three independent image generations without quantization, palette validation, vectorization, or segmentation. The Test Calls page exposes the processed stages independently and lets an operator copy or download its output and pass it into the next stage.</p>
               </section>
 
               <section id="docs-artifacts" class="documentation-section">
                 <h3><span>06</span> Results and artifacts</h3>
-                <p><strong>pipeline-1</strong> returns <code>Content-Type: image/png</code> with the filename <code>moonli.png</code>. <strong>pipeline-2</strong> returns <code>application/vnd.moonli.layers+zip</code> with the filename <code>moonli-layers.zip</code>. <strong>pipeline-3 normalization</strong> returns only the normalized UTF-8 text. <strong>pipeline-3 generation</strong> returns <code>application/zip</code> containing exactly <code>image_1.jpg</code>, <code>image_2.jpg</code>, and <code>image_3.jpg</code>; every member is a 1024×1024 RGB JPEG.</p>
+                <p><strong>pipeline-1</strong> returns <code>Content-Type: image/png</code> with the filename <code>moonli.png</code>. <strong>pipeline-2</strong> returns <code>application/vnd.moonli.layers+zip</code> with the filename <code>moonli-layers.zip</code>. <strong>pipeline-3 normalization</strong> returns only the normalized Russian UTF-8 text. <strong>pipeline-3 generation</strong> translates that text into an English prompt and returns <code>application/zip</code> containing exactly <code>image_1.jpg</code>, <code>image_2.jpg</code>, and <code>image_3.jpg</code>; every member is a 1024×1024 RGB JPEG.</p>
                 <p>Successful pipeline-1 and pipeline-2 responses include <code>X-Moonli-Run-Id</code>, <code>X-Moonli-Result-SHA256</code>, <code>X-Moonli-Device-Id</code>, and <code>X-Idempotent-Replay</code>. Clients must stream the body to a staging file, verify the SHA-256 response digest, validate the expected media type, and atomically publish the completed file. The pipeline-3 TouchDesigner integration validates the in-memory ZIP, JPEG dimensions, names, and uniqueness before atomically replacing the three files.</p>
                 <p>A <code>pipeline-2</code> package contains:</p>
                 <pre><code>manifest.json
@@ -638,15 +639,15 @@ layers/00.png
 ...
 layers/11.png</code></pre>
                 <p>Each layer is a full-canvas RGBA PNG. Transparent pixels are exactly <code>(0,0,0,0)</code>; visible pixels are fully opaque and use exactly the assigned slot color. Unused slots remain present as transparent images with <code>used:false</code>. The manifest records contract version, run ID, canvas, palette order, member paths, usage flags, and SHA-256 values. The backend verifies ZIP safety, member checksums, dimensions, colors, alpha, ordering, and pixel-perfect recomposition before publishing.</p>
-                <p>The operator full-run download is a diagnostic archive rather than the production response. Pipelines 1 and 2 contain the applicable original text or audio, normalized text, technical prompt, generated PNG, quantized PNG, validation report, vector output, and layer artifacts. Pipeline 3 contains the original text or audio, optional transcription, normalized text, three JPEG variants, the exact production image ZIP, and an execution trace; skipped stages are explicitly marked <code>not_applicable</code>. Every archive records the selected pipeline and input type.</p>
+                <p>The operator full-run download is a diagnostic archive rather than the production response. Pipelines 1 and 2 contain the applicable original text or audio, normalized text, technical prompt, generated PNG, quantized PNG, validation report, vector output, and layer artifacts. Pipeline 3 contains the original text or audio, optional transcription, normalized Russian text, translated English prompt, three JPEG variants, the exact production image ZIP, and an execution trace; skipped stages are explicitly marked <code>not_applicable</code>. Every archive records the selected pipeline and input type.</p>
               </section>
 
               <section id="docs-google" class="documentation-section">
                 <h3><span>07</span> Google providers and prompt templates</h3>
                 <p>Each pipeline has its own persistent Google API key on the Production page. Keys are verified against Google, written atomically to pipeline-specific files in the dedicated secrets volume, and never placed in <code>.env</code>, localStorage, logs, API responses, logical backups, or release files. The browser receives only configured status. Deleting a key disables Google-backed calls for that pipeline until a replacement is saved.</p>
-                <p>If Google rejects the server region, Configuration → Routing can send every Google provider request through the internal Xray sidecar. Paste a VLESS Reality/TCP/Vision connection, enable the switch, and save. The secret is stored only in <code>moonli_secrets</code>; the browser can see configured status but cannot retrieve the value. Disabling routing restores direct Google connections and retains the private VLESS value.</p>
+                <p>If Google rejects the server region, Configuration → Routing can send every Google provider request—including Pipeline 3 prompt translation—through the internal Xray sidecar. Paste a VLESS Reality/TCP/Vision connection, enable the switch, and save. The secret is stored only in <code>moonli_secrets</code>; the browser can see configured status but cannot retrieve the value. Disabling routing restores direct Google connections and retains the private VLESS value.</p>
                 <p>The key entered from Test Calls is intentionally temporary: it exists only in the current tab's memory and is used by individual stages and Full Run for all three pipelines. Test endpoints never fall back to a Production key or Production pipeline configuration. Refreshing or signing out clears it.</p>
-                <p>Prompt normalization is a separate provider step. Its output should be a short English visual subject such as <code>yellow car</code>, <code>cute penguin icon</code>, or <code>doge on the ball</code>—not a transcript, greeting, or technical palette prompt. Prompt Builder then applies the selected pipeline template. Available placeholders are listed beside the template editor; both templates must be non-empty before saving.</p>
+                <p>Prompt normalization is a separate provider step. Pipelines 1 and 2 normalize to concise English before Prompt Builder applies their technical template. Pipeline 3 normalizes to concise Russian for the TouchDesigner response, then its second operation translates that phrase into English without adding details. Available placeholders are listed beside the template editor; both processed-pipeline templates must be non-empty before saving.</p>
               </section>
 
               <section id="docs-operator" class="documentation-section">
@@ -710,9 +711,11 @@ curl --fail https://moonli.example.com/health</code></pre>
                   <tbody>
                     <tr><td><code>INVALID_DEVICE_ID</code></td><td>Generate and persist the required prefix plus exactly eight digits.</td></tr>
                     <tr><td><code>DEVICE_BLOCKED</code></td><td>Unblock the installation on Devices or investigate why it was disabled.</td></tr>
+                    <tr><td><code>NO_VISUAL_SUBJECT</code></td><td>Speech was recognized, but it did not say what should be drawn. Ask for a concrete visual subject; do not retry automatically.</td></tr>
                     <tr><td><code>UNAUTHORIZED</code></td><td>Check the Bearer client credential; the device ID is not a credential.</td></tr>
                     <tr><td><code>GOOGLE_KEY_NOT_CONFIGURED</code></td><td>Save the persistent key on Production.</td></tr>
                     <tr><td><code>PROMPT_NORMALIZATION_FAILED</code></td><td>Verify the normalization provider, model access, endpoint, key, and timeout.</td></tr>
+                    <tr><td><code>PROMPT_TRANSLATION_FAILED</code></td><td>Verify the Pipeline 3 translation instruction, model access, endpoint, key, and timeout.</td></tr>
                     <tr><td><code>GENERATION_IN_PROGRESS</code></td><td>Wait for <code>Retry-After</code>, then retry the identical request and idempotency key.</td></tr>
                     <tr><td><code>IDEMPOTENCY_CONFLICT</code></td><td>Use a new key for a changed input or pipeline.</td></tr>
                     <tr><td><code>RATE_LIMITED</code></td><td>Honor HTTP 429 and <code>Retry-After</code>.</td></tr>

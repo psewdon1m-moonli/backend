@@ -64,6 +64,7 @@ def test_full_run_lives_in_test_call_view_and_uses_configuration_defaults() -> N
         "settingsNormalizationProvider",
         "settingsCleanupPasses",
         "settingsGenerationAttempts",
+        "googleTranslationModel",
     ):
         assert f'id="{settings_control}"' in html
     assert "pipeline3GoogleOptions" not in javascript
@@ -144,7 +145,9 @@ def test_production_renders_three_independent_pipeline_sections() -> None:
     assert 'const PRODUCTION_PIPELINE_IDS = ["pipeline-1", "pipeline-2", "pipeline-3"]' in javascript
     assert 'data-action="save-key"' in javascript
     assert 'data-action="save-config"' in javascript
-    assert "3 JPEG files · 1024×1024" in javascript
+    assert "Russian normalization → English prompt → 3 JPEG files · 1024×1024" in javascript
+    assert "Prompt translation model" in javascript
+    assert "Prompt translation instruction" in javascript
     assert "TouchDesigner integration kit" in javascript
     assert "pipeline_3_integration" in javascript
     assert "/internal/production/pipelines/" not in javascript

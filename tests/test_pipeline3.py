@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 import uuid
 import zipfile
 from dataclasses import replace
@@ -13,6 +14,7 @@ from PIL import Image
 from app.api.errors import install_error_handlers
 from app.api.routes.generate import router
 from app.composition import build_components
+from app.providers.errors import NoVisualSubjectError
 from app.providers.image_generation.variants import build_image_variant_request
 from app.settings import Settings
 from app.storage.production_pipeline_config import PIPELINE_3_IMAGE_SYSTEM_INSTRUCTION
@@ -51,6 +53,35 @@ def _headers(device_id: str, idempotency_key: str) -> dict[str, str]:
         "X-Moonli-Device-Id": device_id,
         "Idempotency-Key": idempotency_key,
     }
+
+
+class _NoVisualSubjectNormalizer:
+    name = "google"
+
+    async def normalize(self, text: str) -> str:
+        raise NoVisualSubjectError("The request contains no visual subject")
+
+
+class _RecordingTranslator:
+    name = "google"
+
+    def __init__(self) -> None:
+        self.inputs: list[str] = []
+
+    async def translate(self, text: str) -> str:
+        self.inputs.append(text)
+        return "apple tree with red apples"
+
+
+class _RecordingImageGenerator:
+    def __init__(self, delegate) -> None:
+        self.name = delegate.name
+        self._delegate = delegate
+        self.prompts: list[str] = []
+
+    async def generate(self, prompt: str):
+        self.prompts.append(prompt)
+        return await self._delegate.generate(prompt)
 
 
 def test_pipeline_3_two_request_contract_returns_plain_text_then_three_jpegs(
@@ -118,6 +149,33 @@ def test_pipeline_3_operation_namespaces_allow_same_uuid_for_both_calls(tmp_path
     assert normalized.status_code == generated.status_code == 200
 
 
+def test_pipeline_3_translates_russian_before_image_generation(tmp_path) -> None:
+    translator = _RecordingTranslator()
+    with _client(tmp_path) as client:
+        service = client.app.state.pipeline3_service
+        generator = _RecordingImageGenerator(service._image_generator)
+        service._prompt_translator = translator
+        service._image_generator = generator
+        response = client.post(
+            "/v1/generate",
+            headers=_headers("td-12345678", str(uuid.uuid4())),
+            json={
+                "type": "text",
+                "pipeline": "pipeline-3",
+                "text": "яблоня с красными яблоками",
+            },
+        )
+        with sqlite3.connect(tmp_path / "data" / "runs.sqlite3") as connection:
+            trace = connection.execute(
+                "SELECT normalized_text, prompt FROM generation_runs"
+            ).fetchone()
+
+    assert response.status_code == 200
+    assert translator.inputs == ["яблоня с красными яблоками"]
+    assert generator.prompts == ["apple tree with red apples"]
+    assert trace == ("яблоня с красными яблоками", "apple tree with red apples")
+
+
 def test_pipeline_3_normalize_alias_matches_generate_audio_contract(tmp_path) -> None:
     with _client(tmp_path) as client:
         normalized = client.post(
@@ -130,6 +188,29 @@ def test_pipeline_3_normalize_alias_matches_generate_audio_contract(tmp_path) ->
     assert normalized.status_code == 200
     assert normalized.headers["content-type"].startswith("text/plain")
     assert normalized.text == "A calm moonlit landscape made from simple, clean color shapes"
+
+
+def test_pipeline_3_returns_actionable_error_when_audio_has_no_visual_subject(
+    tmp_path,
+) -> None:
+    with _client(tmp_path) as client:
+        client.app.state.pipeline3_service._prompt_normalizer = (
+            _NoVisualSubjectNormalizer()
+        )
+        response = client.post(
+            "/v1/generate",
+            headers=_headers("td-87654321", str(uuid.uuid4())),
+            data={"type": "audio", "pipeline": "pipeline-3"},
+            files={"audio": ("voice.wav", b"RIFF" + b"\0" * 1500, "audio/wav")},
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": {
+            "code": "NO_VISUAL_SUBJECT",
+            "message": "Say what you want to draw.",
+        }
+    }
 
 
 def test_pipeline_3_google_payload_preserves_production_prompt_exactly() -> None:

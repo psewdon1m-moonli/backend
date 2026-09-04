@@ -98,6 +98,12 @@ def main() -> int:
         "TouchDesigner pipeline-3 transcription is not compatible with the 0.0.2 gateway",
         findings,
     )
+    require(
+        "if channel is not None and channel.index > 0:" in touchdesigner_transcription
+        and 'op("../index").par.value0 += 1' in touchdesigner_transcription,
+        "TouchDesigner pipeline-3 transcription changed its channel/index contract",
+        findings,
+    )
     require("/api/v1/register/snapshot" not in nginx, "updater catalog must stay loopback-only", findings)
     require("/internal/updater/restore" not in nginx, "updater restore must stay loopback-only", findings)
     require('X-Robots-Tag "noindex, nofollow, noarchive"' in nginx, "non-indexing header is missing", findings)
@@ -132,13 +138,18 @@ def main() -> int:
         'op("index").par.value0 += 1',
         'op("sfx_button").par.reloadpulse.pulse()',
         'op("/queue").appendRow',
-        'f"moviefilein{index}"',
+        '"/AI_SCRIPT2/moviefilein1"',
+        '"/AI_SCRIPT2/moviefilein2"',
+        '"/AI_SCRIPT2/moviefilein3"',
         'str(uuid.uuid4())',
         '"https://moonli.shmoza.net"',
     )
     require(
         all(item in touchdesigner_generation for item in touchdesigner_contracts)
-        and touchdesigner_generation.count('op("/queue").appendRow') == 2,
+        and touchdesigner_generation.count('op("/queue").appendRow') == 2
+        and "ENABLE_TABLE_ACTIONS" not in touchdesigner_generation
+        and '"/AI_SCRIPT2/moviefilein4"' not in touchdesigner_generation
+        and '"/Table_1/AI_SCRIPT2/' not in touchdesigner_generation,
         "TouchDesigner pipeline-3 generation replacement changed its runtime contract",
         findings,
     )

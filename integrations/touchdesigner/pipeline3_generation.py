@@ -1,4 +1,5 @@
 print("image generation script")
+
 op("index").par.value0 += 1
 op("sfx_button").par.reloadpulse.pulse()
 print("water delivery")
@@ -21,12 +22,15 @@ import json
 import re
 import secrets
 import socket
+import ssl
 import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
 import zipfile
+
+import certifi
 
 
 # --- SETTINGS ---
@@ -35,14 +39,20 @@ API_BASE_URL = "https://moonli.shmoza.net"
 
 # This is the Moonli client access key, not the Google API key.
 # Paste only the key value: without "Bearer", quotes from .env, or the variable name.
-API_KEY = "PASTE_MOONLI_ACCESS_KEY_HERE".strip()
+API_KEY = "b0e28bd8cd82f78f576360b405b4ec879848ca49f9d12b7b213e2b7f552f4987".strip()
 
 IMAGE_SAVE_BASE = os.path.join(project.folder, "generated", "image")
 EXPECTED_IMAGE_NAMES = ("image_1.jpg", "image_2.jpg", "image_3.jpg")
+MOVIE_FILE_IN_PATHS = (
+    "/AI_SCRIPT2/moviefilein1",
+    "/AI_SCRIPT2/moviefilein2",
+    "/AI_SCRIPT2/moviefilein3",
+)
 REQUEST_TIMEOUT_SECONDS = 300
 NETWORK_ATTEMPTS = 3
 MAX_ZIP_RESPONSE_BYTES = 32 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 30 * 1024 * 1024
+TLS_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 DEVICE_DIRECTORY = os.path.join(project.folder, ".moonli")
 DEVICE_ID_PATH = os.path.join(DEVICE_DIRECTORY, "device_id.txt")
@@ -55,7 +65,7 @@ JPEG_SOF_MARKERS = {
 
 
 def _require_access_key():
-    if not API_KEY or API_KEY == "PASTE_MOONLI_ACCESS_KEY_HERE":
+    if not API_KEY or API_KEY.startswith("PASTE_"):
         raise RuntimeError(
             "Moonli access key is not configured. Replace API_KEY in this script."
         )
@@ -160,7 +170,11 @@ def _request_image_archive(prompt_text, device_id, operation_id):
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            with urllib.request.urlopen(
+                request,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+                context=TLS_CONTEXT,
+            ) as response:
                 content_type = response.headers.get_content_type()
                 content = _read_limited(response, MAX_ZIP_RESPONSE_BYTES)
             if content_type not in {"application/zip", "application/x-zip-compressed"}:
@@ -294,10 +308,10 @@ def generate_image_thread(prompt_text, operation_id):
         for index in range(1, 4):
             name = f"image_{index}.jpg"
             safe_path = saved[name].replace("\\", "/")
-            movie_in_name = f"moviefilein{index}"
+            movie_in_path = MOVIE_FILE_IN_PATHS[index - 1]
             run(
                 "op(args[0]).par.file = args[1]; op(args[0]).par.reload.pulse()",
-                movie_in_name,
+                movie_in_path,
                 safe_path,
                 delayFrames=1,
             )

@@ -50,7 +50,7 @@ HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
 Cache-Control: no-store
 
-<NORMALIZED_TEXT_ONLY>"""
+<NORMALIZED_RUSSIAN_TEXT_ONLY>"""
 PIPELINE_3_GENERATE_REQUEST = """POST /v1/generate HTTP/1.1
 Host: moonli.shmoza.net
 Authorization: Bearer <MOONLI_ACCESS_KEY>
@@ -62,8 +62,10 @@ Content-Type: application/json; charset=utf-8
 {
   "type": "text",
   "pipeline": "pipeline-3",
-  "text": "<NORMALIZED_TEXT_FROM_THE_FIRST_REQUEST>"
+  "text": "<NORMALIZED_RUSSIAN_TEXT_FROM_THE_FIRST_REQUEST>"
 }
+
+Moonli translates this text into a concise English image prompt before generation.
 
 Expected success response:
 HTTP/1.1 200 OK
@@ -152,7 +154,7 @@ def _pipeline_3_integration_payload() -> dict[str, object]:
             },
             {
                 "id": "generate-images",
-                "title": "2 · Generate three images",
+                "title": "2 · Translate prompt and generate three images",
                 "content": PIPELINE_3_GENERATE_REQUEST,
             },
         ],
@@ -172,8 +174,8 @@ def _pipeline_3_integration_payload() -> dict[str, object]:
         ],
         "installation": {
             "required_change": (
-                "Set MOONLI_ACCESS_KEY in the TouchDesigner process environment or "
-                "replace PASTE_MOONLI_ACCESS_KEY_HERE in both scripts."
+                "Both scripts include the configured Moonli domain and client Access Key "
+                "and are ready to paste into TouchDesigner."
             ),
             "shared_device_identity": ".moonli/device_id.txt",
             "domain": "https://moonli.shmoza.net",
@@ -227,6 +229,7 @@ def _payload(request: Request, settings: Settings) -> dict[str, object]:
             "image_model": settings.google_image_model,
             "transcription_model": settings.google_transcription_model,
             "normalization_model": settings.google_normalization_model,
+            "translation_model": settings.google_translation_model,
             "timeout_seconds": settings.google_timeout_seconds,
             "aspect_ratio": settings.google_image_aspect_ratio,
             "image_size": settings.google_image_size,

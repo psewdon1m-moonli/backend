@@ -242,6 +242,7 @@ def build_pipeline3_run_archive(
     image_provider: str,
     transcription_provider: str,
     normalization_provider: str,
+    translation_provider: str,
 ) -> RunArchive:
     """Build the diagnostic archive for the shorter pipeline-3 stage graph."""
     entries: dict[str, bytes] = {}
@@ -269,7 +270,8 @@ def build_pipeline3_run_archive(
         "utf-8"
     )
     stage_artifacts["normalization"] = ["text/normalized.txt"]
-    stage_artifacts["prompt_building"] = []
+    entries["prompt/prompt.txt"] = str(trace.get("prompt") or "").encode("utf-8")
+    stage_artifacts["prompt_building"] = ["prompt/prompt.txt"]
 
     image_paths: list[str] = []
     for name in ("image_1.jpg", "image_2.jpg", "image_3.jpg"):
@@ -310,6 +312,7 @@ def build_pipeline3_run_archive(
             "image": image_provider,
             "transcription": transcription_provider,
             "normalization": normalization_provider,
+            "translation": translation_provider,
         },
         "final_output": {"path": final_path, "media_type": "application/zip"},
         "stages": [

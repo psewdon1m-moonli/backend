@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-# Keep the project-local Python packages available, matching the existing DAT setup.
+# Подключаем локальные Python-пакеты проекта TouchDesigner.
 lib_path = os.path.join(project.folder, "site-packages")
 if lib_path not in sys.path:
     sys.path.insert(0, lib_path)
@@ -14,35 +14,67 @@ import mimetypes
 import re
 import secrets
 import socket
+import ssl
 import urllib.error
 import urllib.request
 import uuid
+
+import certifi
 
 
 # --- SETTINGS ---
 
 API_BASE_URL = "https://moonli.shmoza.net"
 
-# This is the Moonli client access key, not the Google API key.
-# Paste only the key value: without "Bearer", quotes from .env, or the variable name.
-API_KEY = "PASTE_MOONLI_ACCESS_KEY_HERE".strip()
+# Клиентский ключ Moonli, не Google API key.
+# Вставить только значение ключа, без Bearer и кавычек.
+API_KEY = "b0e28bd8cd82f78f576360b405b4ec879848ca49f9d12b7b213e2b7f552f4987".strip()
 
-AUDIO_PATH = "Q:/projects/monli_table/MonliProj/voice.wav"
+
+def _find_monli_project_directory(start_directory):
+    current = os.path.abspath(start_directory)
+
+    while True:
+        if os.path.basename(current).lower() == "monliproj":
+            return current
+
+        parent_directory = os.path.dirname(current)
+
+        if parent_directory == current:
+            raise RuntimeError(
+                "Unable to find the MonliProj directory above "
+                + str(start_directory)
+            )
+
+        current = parent_directory
+
+
+MONLI_PROJECT_DIRECTORY = _find_monli_project_directory(project.folder)
+AUDIO_PATH = os.path.join(MONLI_PROJECT_DIRECTORY, "voice.wav")
+
 REQUEST_TIMEOUT_SECONDS = 300
 NETWORK_ATTEMPTS = 3
 MAX_AUDIO_BYTES = 20 * 1024 * 1024
 MAX_TEXT_RESPONSE_BYTES = 8 * 1024
+
+TLS_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 DEVICE_DIRECTORY = os.path.join(project.folder, ".moonli")
 DEVICE_ID_PATH = os.path.join(DEVICE_DIRECTORY, "device_id.txt")
 DEVICE_ID_PATTERN = re.compile(r"^td-[0-9]{8}$")
 
 
+class NoVisualSubjectError(RuntimeError):
+    """Moonli understood the audio, but it contained nothing to draw."""
+
+
 def _require_access_key():
-    if not API_KEY or API_KEY == "PASTE_MOONLI_ACCESS_KEY_HERE":
+    if not API_KEY or API_KEY.startswith("PASTE_"):
         raise RuntimeError(
-            "Moonli access key is not configured. Replace API_KEY in this script."
+            "Moonli access key is not configured. "
+            "Replace API_KEY in this script."
         )
+
     return API_KEY
 
 
@@ -52,19 +84,30 @@ def _read_device_id():
             value = file.read().strip().lower()
     except FileNotFoundError:
         return None
-    return value if DEVICE_ID_PATTERN.fullmatch(value) else None
+
+    if DEVICE_ID_PATTERN.fullmatch(value):
+        return value
+
+    return None
 
 
 def _get_or_create_device_id():
     os.makedirs(DEVICE_DIRECTORY, exist_ok=True)
+
     for _ in range(40):
         existing = _read_device_id()
+
         if existing:
             return existing
+
         if os.path.exists(DEVICE_ID_PATH):
             time.sleep(0.05)
             continue
-        candidate = f"td-{secrets.randbelow(100_000_000):08d}"
+
+        candidate = "td-{:08d}".format(
+            secrets.randbelow(100_000_000)
+        )
+
         try:
             descriptor = os.open(
                 DEVICE_ID_PATH,
@@ -74,8 +117,14 @@ def _get_or_create_device_id():
         except FileExistsError:
             time.sleep(0.05)
             continue
+
         try:
-            with os.fdopen(descriptor, "w", encoding="ascii", newline="\n") as file:
+            with os.fdopen(
+                descriptor,
+                "w",
+                encoding="ascii",
+                newline="\n",
+            ) as file:
                 file.write(candidate + "\n")
                 file.flush()
                 os.fsync(file.fileno())
@@ -85,40 +134,61 @@ def _get_or_create_device_id():
             except OSError:
                 pass
             raise
+
         return candidate
+
     existing = _read_device_id()
+
     if existing:
         return existing
-    raise RuntimeError(f"Unable to create a valid Device ID: {DEVICE_ID_PATH}")
+
+    raise RuntimeError(
+        "Unable to create a valid Device ID: "
+        + DEVICE_ID_PATH
+    )
 
 
 def _audio_content_type(audio_path):
-    guessed = (mimetypes.guess_type(audio_path)[0] or "audio/wav").lower()
+    guessed = (
+        mimetypes.guess_type(audio_path)[0] or "audio/wav"
+    ).lower()
+
     aliases = {
         "audio/x-wav": "audio/wav",
         "audio/mp3": "audio/mpeg",
         "application/ogg": "audio/ogg",
     }
+
     return aliases.get(guessed, guessed)
 
 
 def _multipart_audio(audio_path):
     boundary = "----Moonli" + uuid.uuid4().hex
-    filename = os.path.basename(audio_path).replace('"', "_") or "voice.wav"
+
+    filename = (
+        os.path.basename(audio_path).replace('"', "_")
+        or "voice.wav"
+    )
+
     with open(audio_path, "rb") as file:
         audio = file.read(MAX_AUDIO_BYTES + 1)
+
     if len(audio) > MAX_AUDIO_BYTES:
-        raise RuntimeError("The audio file exceeds the Moonli 20 MiB limit.")
+        raise RuntimeError(
+            "The audio file exceeds the Moonli 20 MiB limit."
+        )
+
     content_type = _audio_content_type(audio_path)
     chunks = []
 
     def field(name, value):
         chunks.extend(
             [
-                f"--{boundary}\r\n".encode("ascii"),
-                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(
-                    "ascii"
-                ),
+                ("--" + boundary + "\r\n").encode("ascii"),
+                (
+                    'Content-Disposition: form-data; '
+                    'name="' + name + '"\r\n\r\n'
+                ).encode("ascii"),
                 value.encode("utf-8"),
                 b"\r\n",
             ]
@@ -126,62 +196,104 @@ def _multipart_audio(audio_path):
 
     field("type", "audio")
     field("pipeline", "pipeline-3")
+
     chunks.extend(
         [
-            f"--{boundary}\r\n".encode("ascii"),
+            ("--" + boundary + "\r\n").encode("ascii"),
             (
-                'Content-Disposition: form-data; name="audio"; '
-                f'filename="{filename}"\r\n'
+                'Content-Disposition: form-data; '
+                'name="audio"; filename="' + filename + '"\r\n'
             ).encode("utf-8"),
-            f"Content-Type: {content_type}\r\n\r\n".encode("ascii"),
+            (
+                "Content-Type: " + content_type + "\r\n\r\n"
+            ).encode("ascii"),
             audio,
             b"\r\n",
-            f"--{boundary}--\r\n".encode("ascii"),
+            ("--" + boundary + "--\r\n").encode("ascii"),
         ]
     )
-    return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+    body = b"".join(chunks)
+    multipart_type = (
+        "multipart/form-data; boundary=" + boundary
+    )
+
+    return body, multipart_type
 
 
 def _read_limited(response, limit):
     result = bytearray()
+
     while True:
         chunk = response.read(4096)
+
         if not chunk:
             break
+
         result.extend(chunk)
+
         if len(result) > limit:
-            raise RuntimeError("The Moonli response exceeds the allowed size.")
+            raise RuntimeError(
+                "The Moonli response exceeds the allowed size."
+            )
+
     return bytes(result)
 
 
 def _http_error_details(error):
     try:
-        text = error.read(64 * 1024).decode("utf-8", errors="replace").strip()
+        text = (
+            error.read(64 * 1024)
+            .decode("utf-8", errors="replace")
+            .strip()
+        )
     except Exception:
         text = ""
+
     error_code = ""
+
     try:
         payload = json.loads(text)
         details = payload.get("error", {})
-        error_code = str(details.get("code", "")).strip()
-        message = str(details.get("message", "")).strip()
-        text = f"{error_code}: {message}" if error_code and message else message or text
+
+        error_code = str(
+            details.get("code", "")
+        ).strip()
+
+        message = str(
+            details.get("message", "")
+        ).strip()
+
+        if error_code and message:
+            text = error_code + ": " + message
+        elif message:
+            text = message
+
     except Exception:
         pass
-    return error_code, text or f"HTTP {error.code}"
+
+    return error_code, text or "HTTP {}".format(error.code)
 
 
-def _request_normalized_text(audio_path, device_id, operation_id):
+def _request_normalized_text(
+    audio_path,
+    device_id,
+    operation_id,
+):
     body, content_type = _multipart_audio(audio_path)
     endpoint = API_BASE_URL.rstrip("/") + "/v1/generate"
+
     last_error = None
+
     for attempt in range(NETWORK_ATTEMPTS):
         request = urllib.request.Request(
             endpoint,
             data=body,
             method="POST",
             headers={
-                "Authorization": f"Bearer {_require_access_key()}",
+                "Authorization": (
+                    "Bearer " + _require_access_key()
+                ),
                 "X-Moonli-Device-Id": device_id,
                 "Idempotency-Key": operation_id,
                 "Content-Type": content_type,
@@ -189,29 +301,74 @@ def _request_normalized_text(audio_path, device_id, operation_id):
                 "User-Agent": "Moonli-TouchDesigner/1.0",
             },
         )
+
         try:
-            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-                response_type = response.headers.get_content_type()
-                content = _read_limited(response, MAX_TEXT_RESPONSE_BYTES)
+            with urllib.request.urlopen(
+                request,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+                context=TLS_CONTEXT,
+            ) as response:
+                response_type = (
+                    response.headers.get_content_type()
+                )
+
+                content = _read_limited(
+                    response,
+                    MAX_TEXT_RESPONSE_BYTES,
+                )
+
             if response_type != "text/plain":
-                raise RuntimeError(f"Unexpected Content-Type: {response_type}")
+                raise RuntimeError(
+                    "Unexpected Content-Type: "
+                    + response_type
+                )
+
             normalized = content.decode("utf-8").strip()
+
             if not normalized:
-                raise RuntimeError("Moonli returned an empty normalized request.")
+                raise RuntimeError(
+                    "Moonli returned an empty normalized request."
+                )
+
             return normalized
+
         except urllib.error.HTTPError as error:
             code, details = _http_error_details(error)
-            retryable = error.code == 429 or (
-                error.code == 409 and code == "GENERATION_IN_PROGRESS"
+
+            if code == "NO_VISUAL_SUBJECT":
+                raise NoVisualSubjectError(
+                    "NO_VISUAL_SUBJECT: Say what you want to draw."
+                ) from error
+
+            retryable = (
+                error.code == 429
+                or (
+                    error.code == 409
+                    and code == "GENERATION_IN_PROGRESS"
+                )
             )
-            if retryable and attempt + 1 < NETWORK_ATTEMPTS:
+
+            if (
+                retryable
+                and attempt + 1 < NETWORK_ATTEMPTS
+            ):
                 try:
-                    delay = float(error.headers.get("Retry-After", attempt + 1))
+                    delay = float(
+                        error.headers.get(
+                            "Retry-After",
+                            attempt + 1,
+                        )
+                    )
                 except (TypeError, ValueError):
                     delay = float(attempt + 1)
-                time.sleep(max(1.0, min(delay, 15.0)))
+
+                time.sleep(
+                    max(1.0, min(delay, 15.0))
+                )
                 continue
+
             raise RuntimeError(details) from error
+
         except (
             urllib.error.URLError,
             http.client.IncompleteRead,
@@ -221,24 +378,53 @@ def _request_normalized_text(audio_path, device_id, operation_id):
             OSError,
         ) as error:
             last_error = error
+
             if attempt + 1 < NETWORK_ATTEMPTS:
                 time.sleep(float(attempt + 1))
                 continue
-    raise RuntimeError(f"Moonli is unavailable after {NETWORK_ATTEMPTS} attempts: {last_error}")
+
+    raise RuntimeError(
+        "Moonli is unavailable after {} attempts: {}".format(
+            NETWORK_ATTEMPTS,
+            last_error,
+        )
+    )
 
 
-def transcription_thread(audio_path, answer_node_path, operation_id):
+def transcription_thread(
+    audio_path,
+    answer_node_path,
+    operation_id,
+):
     try:
         file_size = os.path.getsize(audio_path)
-        print(f"\n[System] File ready. Size: {file_size} bytes")
+
+        print(
+            "\n[System] File ready. Size: {} bytes".format(
+                file_size
+            )
+        )
+
         if file_size < 1000:
-            print("[Error] The file is too small. Hold the button longer.")
+            print(
+                "[Error] The file is too small. "
+                "Hold the button longer."
+            )
             return
+
         device_id = _get_or_create_device_id()
-        print(f"[System] Device ID: {device_id}")
-        print(f"[System] Operation UUID: {operation_id}")
-        normalized = _request_normalized_text(audio_path, device_id, operation_id)
-        print(f">>> [NORMALIZED]: {normalized}")
+
+        print("[System] Device ID: " + device_id)
+        print("[System] Operation UUID: " + operation_id)
+
+        normalized = _request_normalized_text(
+            audio_path,
+            device_id,
+            operation_id,
+        )
+
+        print(">>> [NORMALIZED]: " + normalized)
+
         if answer_node_path:
             run(
                 "op(args[0]).text = args[1]",
@@ -246,8 +432,17 @@ def transcription_thread(audio_path, answer_node_path, operation_id):
                 normalized,
                 delayFrames=1,
             )
+
+    except NoVisualSubjectError:
+        print(
+            "[Moonli] NO_VISUAL_SUBJECT: "
+            "Say what you want to draw."
+        )
     except Exception as error:
-        print(f"Transcription and normalization error: {error}")
+        print(
+            "Transcription and normalization error: "
+            + str(error)
+        )
 
 
 # --- CHOP EXECUTE CALLBACKS ---
@@ -261,20 +456,43 @@ def whileOn(channel, sampleIndex, val, prev):
 
 
 def onOnToOff(channel, sampleIndex, val, prev):
+    if channel is not None and channel.index > 0:
+        return
+
+    op("../index").par.value0 += 1
+
+    # Даём записи время завершить сохранение voice.wav.
     time.sleep(0.2)
+
     if os.path.exists(AUDIO_PATH):
         target_op = op("../answer")
-        answer_path = target_op.path if target_op else ""
+
+        if target_op:
+            answer_path = target_op.path
+        else:
+            answer_path = ""
+
         if not answer_path:
-            print("[Warning] A Text DAT named 'answer' was not found beside this script.")
+            print(
+                "[Warning] A Text DAT named 'answer' "
+                "was not found beside this script."
+            )
+
         operation_id = str(uuid.uuid4())
+
         threading.Thread(
             target=transcription_thread,
-            args=(AUDIO_PATH, answer_path, operation_id),
+            args=(
+                AUDIO_PATH,
+                answer_path,
+                operation_id,
+            ),
             daemon=True,
         ).start()
+
     else:
-        print(f"File not found: {AUDIO_PATH}")
+        print("File not found: " + AUDIO_PATH)
+
     return
 
 

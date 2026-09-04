@@ -15,6 +15,10 @@ from app.providers.image_generation.variants import (
     GoogleImageVariantGenerator,
     MockImageVariantGenerator,
 )
+from app.providers.prompt_translation import (
+    GooglePromptTranslator,
+    MockPromptTranslator,
+)
 from app.security.operator_auth import LoginRateLimiter, OperatorAuthStore
 from app.services.backup import BackupManager
 from app.services.generation_service import GenerationService
@@ -174,8 +178,21 @@ def build_production_services(
         google_api_key,
         usage_recorder,
         instruction=str(configuration["normalization_instruction"]),
+        output_language="russian",
         proxy_url=routing_config_store.proxy_url,
     )
+    if pipeline_settings.normalization_provider == "mock":
+        translator = MockPromptTranslator()
+    else:
+        translator = GooglePromptTranslator(
+            base_url=pipeline_settings.google_api_base_url,
+            api_key=google_api_key,
+            model=str(configuration["google_translation_model"]),
+            timeout_seconds=pipeline_settings.google_timeout_seconds,
+            instruction=str(configuration["translation_instruction"]),
+            usage_recorder=usage_recorder,
+            proxy_url=routing_config_store.proxy_url,
+        )
     if pipeline_settings.image_provider == "mock":
         variant_generator = MockImageVariantGenerator()
     else:
@@ -191,6 +208,7 @@ def build_production_services(
     pipeline3_service = Pipeline3Service(
         input_resolver=InputResolver(transcriber, settings.max_text_length),
         prompt_normalizer=normalizer,
+        prompt_translator=translator,
         image_generator=variant_generator,
         artifact_store=artifact_store,
         run_repository=run_repository,

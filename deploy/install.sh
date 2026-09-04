@@ -42,6 +42,7 @@ MOONLI_NORMALIZATION_PROVIDER=google
 MOONLI_GOOGLE_IMAGE_MODEL=replace-with-enabled-google-image-model
 MOONLI_GOOGLE_TRANSCRIPTION_MODEL=replace-with-enabled-google-transcription-model
 MOONLI_GOOGLE_NORMALIZATION_MODEL=replace-with-enabled-google-text-model
+MOONLI_GOOGLE_TRANSLATION_MODEL=gemini-2.5-flash
 
 # GENERATED SECRETS — machine managed
 MOONLI_UPDATER_CONTROL_TOKEN=$updater_control

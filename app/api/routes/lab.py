@@ -32,7 +32,7 @@ from app.api.routes.generate import AUDIO_ALIASES, IDEMPOTENCY_KEY
 from app.domain.images import GeneratedImage
 from app.domain.inputs import AudioInput, GenerationInput, TextInput
 from app.domain.prompts import GenerationPrompt, VisualBrief
-from app.providers.errors import ProviderError
+from app.providers.errors import NoVisualSubjectError, ProviderError
 from app.providers.image_generation.google import GoogleImageGenerator
 from app.providers.image_generation.mock import MockImageGenerator
 from app.providers.image_generation.variants import (
@@ -40,12 +40,14 @@ from app.providers.image_generation.variants import (
     MockImageVariantGenerator,
 )
 from app.providers.prompt_normalization.google import (
-    INSTRUCTION as NORMALIZATION_INSTRUCTION,
-)
-from app.providers.prompt_normalization.google import (
     GooglePromptNormalizer,
 )
 from app.providers.prompt_normalization.mock import MockPromptNormalizer
+from app.providers.prompt_translation import (
+    GooglePromptTranslator,
+    MockPromptTranslator,
+)
+from app.providers.prompt_translation.google import TRANSLATION_INSTRUCTION
 from app.providers.proxy import ProxyUrlSource
 from app.providers.transcription.google import GoogleTranscriber
 from app.providers.transcription.mock import MockTranscriber
@@ -69,6 +71,7 @@ from app.services.run_archive import build_pipeline3_run_archive, build_run_arch
 from app.settings import Settings
 from app.storage.production_pipeline_config import (
     PIPELINE_3_IMAGE_SYSTEM_INSTRUCTION,
+    PIPELINE_3_NORMALIZATION_INSTRUCTION,
     PIPELINE_3_TRANSCRIPTION_INSTRUCTION,
 )
 
@@ -195,6 +198,7 @@ def _make_prompt_normalizer(
     google_api_key: str | None,
     settings: Settings,
     instruction: str | None = None,
+    output_language: str = "english",
     proxy_url: ProxyUrlSource = None,
 ):
     if provider == "mock":
@@ -208,8 +212,36 @@ def _make_prompt_normalizer(
             _google_key(google_api_key),
             model,
             timeout,
+            output_language=output_language,
             proxy_url=proxy_url,
             **kwargs,
+        )
+    except ValueError as exc:
+        raise MoonliError("INVALID_INPUT", str(exc), 422) from exc
+
+
+def _make_prompt_translator(
+    options: GoogleOptions,
+    provider: str,
+    google_api_key: str | None,
+    settings: Settings,
+    instruction: str,
+    proxy_url: ProxyUrlSource = None,
+):
+    if provider == "mock":
+        return MockPromptTranslator()
+    base_url, timeout, _, _ = _google_options(options, settings)
+    model = (
+        options.google_translation_model or settings.google_translation_model
+    ).strip()
+    try:
+        return GooglePromptTranslator(
+            base_url=base_url,
+            api_key=_google_key(google_api_key),
+            model=model,
+            timeout_seconds=timeout,
+            instruction=instruction,
+            proxy_url=proxy_url,
         )
     except ValueError as exc:
         raise MoonliError("INVALID_INPUT", str(exc), 422) from exc
@@ -335,6 +367,7 @@ def config(
             "image_model": settings.google_image_model,
             "transcription_model": settings.google_transcription_model,
             "normalization_model": settings.google_normalization_model,
+            "translation_model": settings.google_translation_model,
             "timeout_seconds": settings.google_timeout_seconds,
             "aspect_ratio": settings.google_image_aspect_ratio,
             "image_size": settings.google_image_size,
@@ -397,6 +430,10 @@ async def normalize_prompt(
     started = time.perf_counter()
     try:
         normalized = await normalizer.normalize(payload.text)
+    except NoVisualSubjectError as exc:
+        raise MoonliError(
+            "NO_VISUAL_SUBJECT", "Say what you want to draw.", 422
+        ) from exc
     except ProviderError as exc:
         raise MoonliError(
             "PROMPT_NORMALIZATION_FAILED", str(exc), 502
@@ -730,7 +767,16 @@ async def run_pipeline(
             options.normalization_provider,
             x_google_api_key,
             settings,
-            NORMALIZATION_INSTRUCTION,
+            PIPELINE_3_NORMALIZATION_INSTRUCTION,
+            output_language="russian",
+            proxy_url=_routing_proxy(request),
+        )
+        translator = _make_prompt_translator(
+            options,
+            options.normalization_provider,
+            x_google_api_key,
+            settings,
+            TRANSLATION_INSTRUCTION,
             proxy_url=_routing_proxy(request),
         )
         generator = _make_image_variant_generator(
@@ -744,6 +790,7 @@ async def run_pipeline(
         service = Pipeline3Service(
             input_resolver=InputResolver(transcriber, settings.max_text_length),
             prompt_normalizer=normalizer,
+            prompt_translator=translator,
             image_generator=generator,
             artifact_store=request.app.state.artifact_store,
             run_repository=request.app.state.run_repository,
@@ -775,6 +822,7 @@ async def run_pipeline(
             image_provider=generator.name,
             transcription_provider=transcription_provider_name,
             normalization_provider=normalizer.name,
+            translation_provider=translator.name,
         )
         return Response(
             content=archive.content,
@@ -791,6 +839,7 @@ async def run_pipeline(
                 "X-Moonli-Image-Provider": generator.name,
                 "X-Moonli-Transcription-Provider": transcription_provider_name,
                 "X-Moonli-Normalization-Provider": normalizer.name,
+                "X-Moonli-Translation-Provider": translator.name,
                 "X-Moonli-Palette-Quantized": "false",
                 "Cache-Control": "no-store",
             },

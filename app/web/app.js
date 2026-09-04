@@ -483,6 +483,7 @@ function googleOptions() {
     google_image_model: state.settings.imageModel,
     google_transcription_model: state.settings.transcriptionModel,
     google_normalization_model: state.settings.normalizationModel,
+    google_translation_model: state.settings.translationModel,
     timeout_seconds: state.settings.timeout,
     aspect_ratio: state.settings.aspectRatio,
     image_size: state.settings.imageSize,
@@ -515,6 +516,10 @@ function requireGoogle(provider, kind, options = googleOptions()) {
   if (kind === "normalization" && !options.google_normalization_model) {
     navigate("stages");
     throw new ApiError("Enter the Google normalization model.", 422, "GOOGLE_MODEL_REQUIRED");
+  }
+  if (kind === "translation" && !options.google_translation_model) {
+    navigate("stages");
+    throw new ApiError("Enter the Google prompt translation model.", 422, "GOOGLE_MODEL_REQUIRED");
   }
 }
 
@@ -683,6 +688,7 @@ function hydrateConfiguration(config) {
     imageModel: config.google.image_model || "",
     transcriptionModel: config.google.transcription_model || "",
     normalizationModel: config.google.normalization_model || config.google.transcription_model || "",
+    translationModel: config.google.translation_model || "gemini-2.5-flash",
     timeout: config.google.timeout_seconds || 180,
     aspectRatio: config.google.aspect_ratio || "1:1",
     imageSize: config.google.image_size || "1K",
@@ -742,9 +748,10 @@ function renderProduction() {
           <div class="action-row"><button class="primary-action" type="submit">Save Pipeline Key</button><button data-action="delete-key" data-pipeline="${pipelineId}" type="button">Delete Pipeline Key</button></div>
         </form>
         <form data-action="save-config" data-pipeline="${pipelineId}" class="form-layout production-config-form">
-          <div class="form-grid cols-3">
+          <div class="form-grid ${pipelineId === "pipeline-3" ? "cols-4" : "cols-3"}">
             <label class="field"><span>Transcription model</span><input data-field="google_transcription_model" required></label>
             <label class="field"><span>Normalization model</span><input data-field="google_normalization_model" required></label>
+            ${pipelineId === "pipeline-3" ? '<label class="field"><span>Prompt translation model</span><input data-field="google_translation_model" required></label>' : ""}
             <label class="field"><span>Image model</span><input data-field="google_image_model" required></label>
           </div>
           <div class="form-grid cols-3">
@@ -765,6 +772,7 @@ function renderProduction() {
           </div>
           <label class="field"><span>Transcription instruction</span><textarea data-field="transcription_instruction" rows="5"></textarea></label>
           <label class="field"><span>Normalization instruction</span><textarea data-field="normalization_instruction" rows="10"></textarea></label>
+          ${pipelineId === "pipeline-3" ? '<label class="field"><span>Prompt translation instruction</span><textarea data-field="translation_instruction" rows="10"></textarea></label>' : ""}
           <label class="field" data-role="prompt-field"><span></span><textarea rows="18"></textarea></label>
           <div class="action-row"><button class="primary-action" type="submit">Save Pipeline Configuration</button></div>
         </form>
@@ -779,7 +787,7 @@ function renderProduction() {
     status.classList.toggle("is-ready", Boolean(key.configured));
     const output = configuration.output || {};
     article.querySelector('[data-role="output-summary"]').textContent = pipelineId === "pipeline-3"
-      ? "3 JPEG files · 1024×1024 · no palette/vector/layer processing"
+      ? "Russian normalization → English prompt → 3 JPEG files · 1024×1024"
       : `${output.type || "image"} · ${output.width || 1024}×${output.height || 1024}`;
     for (const field of article.querySelectorAll("[data-field]")) {
       field.value = configuration[field.dataset.field] ?? "";
@@ -915,6 +923,7 @@ function syncConfigurationControls() {
   $("googleImageModel").value = state.settings.imageModel;
   $("googleTranscriptionModel").value = state.settings.transcriptionModel;
   $("googleNormalizationModel").value = state.settings.normalizationModel;
+  $("googleTranslationModel").value = state.settings.translationModel;
   $("googleAspectRatio").value = state.settings.aspectRatio;
   $("googleImageSize").value = state.settings.imageSize;
   $("templatePipeline1").value = state.templates["pipeline-1"] || "";
@@ -1379,6 +1388,9 @@ async function handlePipeline(event) {
       requireGoogle(transcriptionProvider, "transcription", selectedGoogleOptions);
     }
     requireGoogle(normalizationProvider, "normalization", selectedGoogleOptions);
+    if (pipeline === "pipeline-3") {
+      requireGoogle(normalizationProvider, "translation", selectedGoogleOptions);
+    }
     const form = new FormData();
     form.append("type", inputType);
     form.append("pipeline", pipeline);
@@ -1693,6 +1705,7 @@ function serverSettingsPayload() {
     google_image_model: state.settings.imageModel,
     google_transcription_model: state.settings.transcriptionModel,
     google_normalization_model: state.settings.normalizationModel,
+    google_translation_model: state.settings.translationModel,
     google_timeout_seconds: state.settings.timeout,
     google_image_aspect_ratio: state.settings.aspectRatio,
     google_image_size: state.settings.imageSize,
@@ -1758,6 +1771,7 @@ async function handleGoogleSettings(event) {
     imageModel: $("googleImageModel").value.trim(),
     transcriptionModel: $("googleTranscriptionModel").value.trim(),
     normalizationModel: $("googleNormalizationModel").value.trim(),
+    translationModel: $("googleTranslationModel").value.trim(),
     timeout: Number($("googleTimeout").value),
     aspectRatio: $("googleAspectRatio").value,
     imageSize: $("googleImageSize").value,

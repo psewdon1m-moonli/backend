@@ -6,8 +6,9 @@ receives the final artifact in the same response.
 
 - `pipeline-1` returns `image/png`.
 - `pipeline-2` returns `application/vnd.moonli.layers+zip`.
-- `pipeline-3` uses two client operations: audio normalization returns plain text,
-  then text generation returns a ZIP containing exactly three 1024×1024 JPEG files.
+- `pipeline-3` uses two client operations: audio normalization returns concise Russian
+  plain text, then the server translates it into an English image prompt and returns
+  a ZIP containing exactly three 1024×1024 JPEG files.
 - JSON text and multipart audio use the same endpoint.
 - Every resolved text passes through prompt normalization before Prompt Builder.
 - Credentials authenticate; only the request tag selects the pipeline.

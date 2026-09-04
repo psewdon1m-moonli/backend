@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.domain.profiles import PipelineProfile
 from app.providers.image_generation.google import build_image_generation_request
 from app.providers.prompt_normalization.google import build_normalization_request
+from app.providers.prompt_translation.google import build_translation_request
 from app.providers.transcription.google import build_transcription_request
 from app.services.prompts import PromptBuilder
 from app.settings import Settings
@@ -103,6 +104,18 @@ def build_production_request_templates(
                 "<GOOGLE_NORMALIZATION_MODEL>",
             ),
             build_normalization_request("<SOURCE_TEXT>"),
+        )
+    )
+    requests.append(
+        _google_request(
+            "google-translation",
+            "Google · Pipeline 3 prompt translation",
+            _model_endpoint(
+                settings,
+                settings.google_translation_model,
+                "gemini-2.5-flash",
+            ),
+            build_translation_request("<RUSSIAN_NORMALIZED_VISUAL_REQUEST>"),
         )
     )
     for pipeline_id in ("pipeline-1", "pipeline-2"):

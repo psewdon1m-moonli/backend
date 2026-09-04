@@ -29,6 +29,7 @@ class ServerSettingsStore:
             "google_image_model": self._defaults.google_image_model,
             "google_transcription_model": self._defaults.google_transcription_model,
             "google_normalization_model": self._defaults.google_normalization_model,
+            "google_translation_model": self._defaults.google_translation_model,
             "google_timeout_seconds": self._defaults.google_timeout_seconds,
             "google_image_aspect_ratio": self._defaults.google_image_aspect_ratio,
             "google_image_size": self._defaults.google_image_size,
@@ -83,6 +84,7 @@ class ServerSettingsStore:
             google_image_model=str(values["google_image_model"]),
             google_transcription_model=str(values["google_transcription_model"]),
             google_normalization_model=str(values["google_normalization_model"]),
+            google_translation_model=str(values["google_translation_model"]),
             google_timeout_seconds=float(values["google_timeout_seconds"]),
             google_image_aspect_ratio=str(values["google_image_aspect_ratio"]),
             google_image_size=str(values["google_image_size"]),
@@ -96,6 +98,7 @@ class ServerSettingsStore:
             "image_provider", "transcription_provider", "normalization_provider",
             "google_api_base_url", "google_image_model", "google_transcription_model",
             "google_normalization_model", "google_timeout_seconds", "google_image_aspect_ratio",
+            "google_translation_model",
             "google_image_size", "palette_cleanup_passes", "palette_generation_attempts",
             "prompt_templates",
         }
@@ -111,7 +114,12 @@ class ServerSettingsStore:
             or parsed.username or parsed.password or parsed.query or parsed.fragment
         ):
             raise ValueError("Google base URL must be an HTTPS googleapis.com endpoint")
-        for field in ("google_image_model", "google_transcription_model", "google_normalization_model"):
+        for field in (
+            "google_image_model",
+            "google_transcription_model",
+            "google_normalization_model",
+            "google_translation_model",
+        ):
             value = str(values[field]).strip()
             if len(value) > 200 or any(character in value for character in "\r\n"):
                 raise ValueError(f"Invalid {field}")
