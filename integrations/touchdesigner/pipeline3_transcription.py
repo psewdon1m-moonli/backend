@@ -30,27 +30,12 @@ API_BASE_URL = "https://moonli.shmoza.net"
 # Вставить только значение ключа, без Bearer и кавычек.
 API_KEY = "b0e28bd8cd82f78f576360b405b4ec879848ca49f9d12b7b213e2b7f552f4987".strip()
 
-
-def _find_monli_project_directory(start_directory):
-    current = os.path.abspath(start_directory)
-
-    while True:
-        if os.path.basename(current).lower() == "monliproj":
-            return current
-
-        parent_directory = os.path.dirname(current)
-
-        if parent_directory == current:
-            raise RuntimeError(
-                "Unable to find the MonliProj directory above "
-                + str(start_directory)
-            )
-
-        current = parent_directory
-
-
-MONLI_PROJECT_DIRECTORY = _find_monli_project_directory(project.folder)
-AUDIO_PATH = os.path.join(MONLI_PROJECT_DIRECTORY, "voice.wav")
+AUDIO_PATH = os.path.join(
+    project.folder,
+    "generated",
+    f"t{int(parent(2).digits)}",
+    "voice.wav",
+)
 
 REQUEST_TIMEOUT_SECONDS = 300
 NETWORK_ATTEMPTS = 3

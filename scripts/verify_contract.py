@@ -100,7 +100,10 @@ def main() -> int:
     )
     require(
         "if channel is not None and channel.index > 0:" in touchdesigner_transcription
-        and 'op("../index").par.value0 += 1' in touchdesigner_transcription,
+        and 'op("../index").par.value0 += 1' in touchdesigner_transcription
+        and 'f"t{int(parent(2).digits)}"' in touchdesigner_transcription
+        and "MONLI_PROJECT_DIRECTORY" not in touchdesigner_transcription
+        and "def _find_monli_project_directory" not in touchdesigner_transcription,
         "TouchDesigner pipeline-3 transcription changed its channel/index contract",
         findings,
     )
@@ -141,6 +144,9 @@ def main() -> int:
         '"/AI_SCRIPT2/moviefilein1"',
         '"/AI_SCRIPT2/moviefilein2"',
         '"/AI_SCRIPT2/moviefilein3"',
+        "IMAGE_SAVE_DIR = os.path.join(",
+        'f"t{int(parent().digits)}"',
+        "directory = IMAGE_SAVE_DIR",
         'str(uuid.uuid4())',
         '"https://moonli.shmoza.net"',
     )
@@ -148,6 +154,7 @@ def main() -> int:
         all(item in touchdesigner_generation for item in touchdesigner_contracts)
         and touchdesigner_generation.count('op("/queue").appendRow') == 2
         and "ENABLE_TABLE_ACTIONS" not in touchdesigner_generation
+        and "IMAGE_SAVE_BASE" not in touchdesigner_generation
         and '"/AI_SCRIPT2/moviefilein4"' not in touchdesigner_generation
         and '"/Table_1/AI_SCRIPT2/' not in touchdesigner_generation,
         "TouchDesigner pipeline-3 generation replacement changed its runtime contract",

@@ -41,7 +41,11 @@ API_BASE_URL = "https://moonli.shmoza.net"
 # Paste only the key value: without "Bearer", quotes from .env, or the variable name.
 API_KEY = "b0e28bd8cd82f78f576360b405b4ec879848ca49f9d12b7b213e2b7f552f4987".strip()
 
-IMAGE_SAVE_BASE = os.path.join(project.folder, "generated", "image")
+IMAGE_SAVE_DIR = os.path.join(
+    project.folder,
+    "generated",
+    f"t{int(parent().digits)}",
+)
 EXPECTED_IMAGE_NAMES = ("image_1.jpg", "image_2.jpg", "image_3.jpg")
 MOVIE_FILE_IN_PATHS = (
     "/AI_SCRIPT2/moviefilein1",
@@ -270,14 +274,17 @@ def _validate_archive(content):
 
 
 def _save_images(images, operation_id):
-    directory = os.path.dirname(IMAGE_SAVE_BASE)
+    directory = IMAGE_SAVE_DIR
     os.makedirs(directory, exist_ok=True)
     temporary = {}
     final = {}
     try:
         for name in EXPECTED_IMAGE_NAMES:
             target = os.path.join(directory, name)
-            staging = os.path.join(directory, f".{name}.{operation_id}.tmp")
+            staging = os.path.join(
+                directory,
+                f".{name}.{operation_id}.tmp",
+            )
             with open(staging, "wb") as file:
                 file.write(images[name])
                 file.flush()

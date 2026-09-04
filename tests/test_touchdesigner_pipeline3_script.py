@@ -23,6 +23,10 @@ def test_touchdesigner_generation_replacement_preserves_runtime_contract() -> No
     assert source.count('op("/queue").appendRow') == 2
     assert 'operation_id = str(uuid.uuid4())' in source
     assert 'DEVICE_ID_PATH = os.path.join(DEVICE_DIRECTORY, "device_id.txt")' in source
+    assert "IMAGE_SAVE_DIR = os.path.join(" in source
+    assert 'f"t{int(parent().digits)}"' in source
+    assert "directory = IMAGE_SAVE_DIR" in source
+    assert "IMAGE_SAVE_BASE" not in source
     assert '"/AI_SCRIPT2/moviefilein1"' in source
     assert '"/AI_SCRIPT2/moviefilein2"' in source
     assert '"/AI_SCRIPT2/moviefilein3"' in source
@@ -39,9 +43,11 @@ def test_touchdesigner_transcription_replacement_preserves_runtime_contract() ->
     ast.parse(source)
 
     assert 'API_BASE_URL = "https://moonli.shmoza.net"' in source
-    assert 'def _find_monli_project_directory(start_directory):' in source
-    assert 'MONLI_PROJECT_DIRECTORY = _find_monli_project_directory(project.folder)' in source
-    assert 'AUDIO_PATH = os.path.join(MONLI_PROJECT_DIRECTORY, "voice.wav")' in source
+    assert "def _find_monli_project_directory" not in source
+    assert "MONLI_PROJECT_DIRECTORY" not in source
+    assert "AUDIO_PATH = os.path.join(" in source
+    assert 'f"t{int(parent(2).digits)}"' in source
+    assert '"voice.wav"' in source
     assert 'target_op = op("../answer")' in source
     assert '"pipeline", "pipeline-3"' in source
     assert '"Accept": "text/plain"' in source

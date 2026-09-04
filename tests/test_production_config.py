@@ -193,6 +193,8 @@ def test_pipeline_3_integration_kit_contains_two_requests_and_two_scripts(tmp_pa
     assert "image_1.jpg" in payload["requests"][1]["content"]
     assert 'op("../answer")' in payload["scripts"][0]["content"]
     assert 'target_op = op("answer")' in payload["scripts"][1]["content"]
+    assert 'f"t{int(parent(2).digits)}"' in payload["scripts"][0]["content"]
+    assert "MONLI_PROJECT_DIRECTORY" not in payload["scripts"][0]["content"]
     key_pattern = re.compile(r'^API_KEY = "([^"]+)"\.strip\(\)$', re.MULTILINE)
     transcription_key = key_pattern.search(payload["scripts"][0]["content"])
     generation_key = key_pattern.search(payload["scripts"][1]["content"])
@@ -204,6 +206,9 @@ def test_pipeline_3_integration_kit_contains_two_requests_and_two_scripts(tmp_pa
     generation_script = payload["scripts"][1]["content"]
     assert 'op("index").par.value0 += 1' in generation_script
     assert "ENABLE_TABLE_ACTIONS" not in generation_script
+    assert "IMAGE_SAVE_DIR = os.path.join(" in generation_script
+    assert 'f"t{int(parent().digits)}"' in generation_script
+    assert "directory = IMAGE_SAVE_DIR" in generation_script
     assert '"/AI_SCRIPT2/moviefilein1"' in generation_script
     assert '"/AI_SCRIPT2/moviefilein2"' in generation_script
     assert '"/AI_SCRIPT2/moviefilein3"' in generation_script
