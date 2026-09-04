@@ -45,7 +45,7 @@ Do not use either value on a server.
 ## Verification
 
 ```powershell
-python -m pip install --require-hashes -r requirements.lock
+python -m pip install --require-hashes -r requirements-dev.lock
 python -m ruff check app tests scripts
 python -m pytest -q
 python scripts/security_scan.py

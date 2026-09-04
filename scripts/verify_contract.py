@@ -16,12 +16,32 @@ def require(condition: bool, message: str, findings: list[str]) -> None:
 def main() -> int:
     findings: list[str] = []
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     nginx = (ROOT / "deploy/nginx/default.conf.template").read_text(encoding="utf-8")
     html = (ROOT / "app/web/index.html").read_text(encoding="utf-8")
     operations = (ROOT / "app/web/operations.html").read_text(encoding="utf-8")
+    ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    release_workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    development_lock = (ROOT / "requirements-dev.lock").read_text(encoding="utf-8")
     exposure = json.loads((ROOT / "docs/exposure-registry.json").read_text(encoding="utf-8"))
 
     require("MOONLI_GOOGLE_API_KEY" not in compose, "Google key must not enter Compose/.env", findings)
+    require(
+        "requirements-dev.lock" in ci_workflow
+        and "requirements-dev.lock" in release_workflow,
+        "CI and release jobs must install the development lock",
+        findings,
+    )
+    require(
+        "ruff==" in development_lock and "pytest==" in development_lock,
+        "development lock must include Ruff and pytest",
+        findings,
+    )
+    require(
+        "requirements.lock" in dockerfile and "requirements-dev.lock" not in dockerfile,
+        "production image must install only the runtime lock",
+        findings,
+    )
     require('127.0.0.1:${MOONLI_LOOPBACK_API_PORT:-18000}:8000' in compose, "API loopback binding is missing", findings)
     require("/var/run/docker.sock" not in compose, "web stack must not receive Docker socket", findings)
     require("cap_drop:\n      - ALL" in compose, "API capability drop is missing", findings)

@@ -5,6 +5,7 @@
 .temp
 .repo-audit
 .docs
+requirements-dev.lock
 __pycache__
 *.py[cod]
 data
