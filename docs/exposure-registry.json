@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "policy_revision": "2026-09-04",
+  "seo_geo_profile": "not-applicable-by-operator-decision",
+  "surfaces": [
+    {
+      "id": "gateway",
+      "listener": "tcp/80,tcp/443",
+      "mode": "public/non-indexable",
+      "identity": "TLS hostname plus route-specific authentication",
+      "owner": "nginx"
+    },
+    {
+      "id": "client-api",
+      "route": "POST /v1/generate",
+      "mode": "public/non-indexable",
+      "identity": "independent client API key plus persistent td-/aa- device identifier",
+      "owner": "moonli-api"
+    },
+    {
+      "id": "operator-api",
+      "route": "/internal/auth/* and allow-listed /internal/* routes",
+      "mode": "private",
+      "identity": "operator Access Key converted to HttpOnly session plus CSRF",
+      "owner": "moonli-api"
+    },
+    {
+      "id": "api-loopback",
+      "listener": "127.0.0.1:18000",
+      "mode": "private",
+      "identity": "host-local reachability plus route credential",
+      "owner": "moonli-api"
+    },
+    {
+      "id": "updater-socket",
+      "listener": "/run/exocortex/updater.sock",
+      "mode": "concealed",
+      "identity": "Unix group membership plus per-service updater token",
+      "owner": "root updater daemon"
+    },
+    {
+      "id": "provider-google",
+      "destination": "https://generativelanguage.googleapis.com",
+      "mode": "private",
+      "identity": "Google API key stored in moonli_secrets volume",
+      "owner": "moonli-api"
+    },
+    {
+      "id": "release-github",
+      "destination": "https://github.com/psewdon1m-moonli/backend",
+      "mode": "public/non-indexable",
+      "identity": "fixed repository policy, release contract and artifact digests",
+      "owner": "updater and bootstrap"
+    }
+  ]
+}

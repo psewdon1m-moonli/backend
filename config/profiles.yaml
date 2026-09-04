@@ -1,0 +1,22 @@
+profiles:
+  pipeline-1:
+    output_mode: full_image
+    palette: palettes/pipeline_1_v1.yaml
+    canvas:
+      width: 1024
+      height: 1024
+    visual_constraints:
+      - flat vector-like illustration
+      - simple coherent shapes with clean boundaries
+      - no gradients, shading, photographic noise, or transparency
+  pipeline-2:
+    output_mode: layered_image
+    palette: palettes/pipeline_2_v1.yaml
+    canvas:
+      width: 1024
+      height: 1024
+    visual_constraints:
+      - flat vector-like illustration
+      - large coherent color regions with clear boundaries
+      - minimal texture and no gradients, shading, or photographic noise
+      - every visible pixel must use an allowed palette color

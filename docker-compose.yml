@@ -1,0 +1,184 @@
+services:
+  api:
+    container_name: moonli-api
+    image: ${MOONLI_IMAGE:-moonli-backend:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      MOONLI_DATA_DIR: /app/data/v1
+      MOONLI_SECRETS_DIR: /app/secrets
+      MOONLI_CONFIG_DIR: /app/config
+      MOONLI_ENV: ${MOONLI_ENV:-development}
+      MOONLI_ALLOWED_HOSTS: ${MOONLI_ALLOWED_HOSTS:-localhost,127.0.0.1,testserver}
+      MOONLI_CLIENT_API_KEYS: ${MOONLI_CLIENT_API_KEYS:-dev-moonli-client-key}
+      MOONLI_OPERATOR_ACCESS_KEY: ${MOONLI_OPERATOR_ACCESS_KEY-dev-moonli-operator-key-01}
+      MOONLI_OPERATOR_SESSION_TTL_MINUTES: ${MOONLI_OPERATOR_SESSION_TTL_MINUTES:-480}
+      MOONLI_IMAGE_PROVIDER: ${MOONLI_IMAGE_PROVIDER:-mock}
+      MOONLI_TRANSCRIPTION_PROVIDER: ${MOONLI_TRANSCRIPTION_PROVIDER:-mock}
+      MOONLI_NORMALIZATION_PROVIDER: ${MOONLI_NORMALIZATION_PROVIDER:-mock}
+      MOONLI_GOOGLE_IMAGE_MODEL: ${MOONLI_GOOGLE_IMAGE_MODEL:-}
+      MOONLI_GOOGLE_TRANSCRIPTION_MODEL: ${MOONLI_GOOGLE_TRANSCRIPTION_MODEL:-}
+      MOONLI_GOOGLE_NORMALIZATION_MODEL: ${MOONLI_GOOGLE_NORMALIZATION_MODEL:-}
+      MOONLI_GOOGLE_API_BASE_URL: ${MOONLI_GOOGLE_API_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
+      MOONLI_GOOGLE_TIMEOUT_SECONDS: ${MOONLI_GOOGLE_TIMEOUT_SECONDS:-180}
+      MOONLI_GOOGLE_IMAGE_ASPECT_RATIO: ${MOONLI_GOOGLE_IMAGE_ASPECT_RATIO:-1:1}
+      MOONLI_GOOGLE_IMAGE_SIZE: ${MOONLI_GOOGLE_IMAGE_SIZE:-1K}
+      MOONLI_MAX_TEXT_LENGTH: ${MOONLI_MAX_TEXT_LENGTH:-12000}
+      MOONLI_MAX_AUDIO_SIZE: ${MOONLI_MAX_AUDIO_SIZE:-20971520}
+      MOONLI_PALETTE_SNAP_DISTANCE: ${MOONLI_PALETTE_SNAP_DISTANCE:-12}
+      MOONLI_PALETTE_CLEANUP_PASSES: ${MOONLI_PALETTE_CLEANUP_PASSES:-1}
+      MOONLI_PALETTE_GENERATION_ATTEMPTS: ${MOONLI_PALETTE_GENERATION_ATTEMPTS:-3}
+      MOONLI_REQUESTS_PER_MINUTE: ${MOONLI_REQUESTS_PER_MINUTE:-30}
+      MOONLI_CONCURRENT_REQUESTS_PER_CLIENT: ${MOONLI_CONCURRENT_REQUESTS_PER_CLIENT:-2}
+      MOONLI_STAGING_RETENTION_HOURS: ${MOONLI_STAGING_RETENTION_HOURS:-24}
+      MOONLI_INPUT_RETENTION_HOURS: ${MOONLI_INPUT_RETENTION_HOURS:-24}
+      MOONLI_COMPLETED_RETENTION_DAYS: ${MOONLI_COMPLETED_RETENTION_DAYS:-30}
+      MOONLI_IN_PROGRESS_STALE_MINUTES: ${MOONLI_IN_PROGRESS_STALE_MINUTES:-30}
+      MOONLI_USAGE_RETENTION_DAYS: ${MOONLI_USAGE_RETENTION_DAYS:-365}
+      MOONLI_USAGE_MAX_ROWS: ${MOONLI_USAGE_MAX_ROWS:-1000000}
+      MOONLI_CORS_ORIGINS: ${MOONLI_CORS_ORIGINS:-}
+      MOONLI_AUDIT_RETENTION_DAYS: ${MOONLI_AUDIT_RETENTION_DAYS:-30}
+      MOONLI_AUDIT_MAX_EVENTS: ${MOONLI_AUDIT_MAX_EVENTS:-10000}
+      MOONLI_AUDIT_MAX_BYTES: ${MOONLI_AUDIT_MAX_BYTES:-67108864}
+      MOONLI_BACKUP_MAX_COMPRESSED_BYTES: ${MOONLI_BACKUP_MAX_COMPRESSED_BYTES:-134217728}
+      MOONLI_BACKUP_MAX_UNCOMPRESSED_BYTES: ${MOONLI_BACKUP_MAX_UNCOMPRESSED_BYTES:-268435456}
+      MOONLI_BACKEND_REPOSITORY_URL: https://github.com/psewdon1m-moonli/backend.git
+      MOONLI_VERSION: ${MOONLI_VERSION:-0.1.0}
+      MOONLI_UPDATER_CATALOG_TOKEN: ${MOONLI_UPDATER_CATALOG_TOKEN:-}
+      MOONLI_UPDATER_CONTROL_TOKEN: ${MOONLI_UPDATER_CONTROL_TOKEN:-}
+      MOONLI_UPDATER_SOCKET_PATH: /run/exocortex/updater.sock
+    expose:
+      - "8000"
+    ports:
+      - "127.0.0.1:${MOONLI_LOOPBACK_API_PORT:-18000}:8000"
+    group_add:
+      - "${UPDATER_SOCKET_GID:-0}"
+    volumes:
+      - moonli_data:/app/data
+      - moonli_secrets:/app/secrets
+      - /run/exocortex:/run/exocortex
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: ${MOONLI_API_MEMORY_LIMIT:-2g}
+    cpus: ${MOONLI_API_CPU_LIMIT:-2.0}
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os, urllib.request; host=os.environ['MOONLI_ALLOWED_HOSTS'].split(',')[0]; request=urllib.request.Request('http://127.0.0.1:8000/health', headers={'Host': host}); urllib.request.urlopen(request, timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ./deploy/nginx
+      dockerfile: Dockerfile
+    environment:
+      MOONLI_ENV: ${MOONLI_ENV:-development}
+      MOONLI_DOMAIN: ${MOONLI_DOMAIN:-localhost}
+      MOONLI_MAX_REQUEST_BODY: ${MOONLI_MAX_REQUEST_BODY:-22m}
+      NGINX_ENVSUBST_FILTER: ^MOONLI_
+    ports:
+      - "${MOONLI_HTTP_PORT:-80}:80"
+      - "${MOONLI_HTTPS_PORT:-443}:443"
+    volumes:
+      - ${MOONLI_TLS_CERTS_PATH:-nginx_certs}:/etc/nginx/certs
+    depends_on:
+      api:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+    pids_limit: 128
+    mem_limit: ${MOONLI_GATEWAY_MEMORY_LIMIT:-256m}
+    cpus: ${MOONLI_GATEWAY_CPU_LIMIT:-0.5}
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'wget -q --no-check-certificate --header="Host: $${MOONLI_DOMAIN}" -O /dev/null https://127.0.0.1/health'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  step-generate:
+    profiles: ["legacy"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    command: uvicorn app.step_generate:app --host 0.0.0.0 --port 8001
+    volumes:
+      - moonli_data:/app/data
+
+  step-vectorize:
+    profiles: ["legacy"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    command: uvicorn app.step_vectorize:app --host 0.0.0.0 --port 8002
+    volumes:
+      - moonli_data:/app/data
+
+  step-segment:
+    profiles: ["legacy"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    command: uvicorn app.step_segment:app --host 0.0.0.0 --port 8004
+    volumes:
+      - moonli_data:/app/data
+
+  step-palette:
+    profiles: ["legacy"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    command: uvicorn app.step_palette:app --host 0.0.0.0 --port 8003
+    volumes:
+      - moonli_data:/app/data
+
+volumes:
+  moonli_data:
+  moonli_secrets:
+  nginx_certs:

@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install locked dependencies
+        run: python -m pip install --require-hashes -r requirements.lock
+      - name: Verify source and contracts
+        run: |
+          python -m ruff check app tests scripts
+          python -m pytest -q
+          python -m compileall -q app scripts
+          node --check app/web/app.js
+          python scripts/security_scan.py
+          python scripts/verify_contract.py
+          docker compose config --quiet
+      - name: Build application image
+        run: docker build --pull --tag moonli-ci:${{ github.sha }} .
+      - name: Inspect final image for forbidden inputs
+        run: |
+          docker history --no-trunc moonli-ci:${{ github.sha }} > /tmp/moonli-history.txt
+          if grep -E 'MOONLI_GOOGLE_API_KEY|TABLE_GEN_NANO_BANANA_PRO_API_KEY|BEGIN.*PRIVATE KEY' /tmp/moonli-history.txt; then exit 1; fi
+          container_id="$(docker create moonli-ci:${{ github.sha }})"
+          docker export "$container_id" --output /tmp/moonli-image.tar
+          docker rm "$container_id"
+          mkdir /tmp/moonli-image
+          tar -xf /tmp/moonli-image.tar -C /tmp/moonli-image
+          test ! -e /tmp/moonli-image/app/.env
+          if grep -R -E --binary-files=without-match 'AIza[0-9A-Za-z_-]{30,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' /tmp/moonli-image/app; then exit 1; fi
+      - name: Compose health and exposure smoke test
+        env:
+          MOONLI_HTTP_PORT: "18080"
+          MOONLI_HTTPS_PORT: "18443"
+          MOONLI_LOOPBACK_API_PORT: "18000"
+        run: |
+          docker compose up --build -d --wait
+          curl --fail --silent --show-error --insecure --header 'Host: localhost' https://127.0.0.1:18443/health
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --insecure --header 'Host: localhost' https://127.0.0.1:18443/docs)" = "404"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --insecure --header 'Host: localhost' https://127.0.0.1:18443/metrics)" = "404"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --insecure --header 'Host: invalid.example' https://127.0.0.1:18443/health)" = "421"
+      - name: Bounded failure diagnostics
+        if: failure()
+        run: docker compose logs --tail 100 api gateway
+      - name: Stop test stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans

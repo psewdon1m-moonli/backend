@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Moonli · Operations Guide</title>
+  <link rel="icon" type="image/png" href="/web/assets/halftone-moon-alpha.png?v=20260903-10">
+  <link rel="stylesheet" href="/web/styles.css?v=20260904-13">
+</head>
+<body class="operations-page">
+  <main class="operations-document">
+    <header class="documentation-hero card">
+      <p class="documentation-kicker">OPERATIONS · API · CLIENTS</p>
+      <h1>Moonli Operations Guide</h1>
+      <p>A standalone reference for operating, integrating, deploying, backing up, and updating the Moonli generation service.</p>
+      <a class="download-link" href="/">Return to Moonli</a>
+    </header>
+
+    <section class="card documentation-section">
+      <h2>Contents</h2>
+      <div class="operations-toc">
+        <a href="#architecture">Architecture and access</a>
+        <a href="#startup">First production startup</a>
+        <a href="#api">Production client API</a>
+        <a href="#devices">Device identity</a>
+        <a href="#pipeline">Processing pipeline</a>
+        <a href="#artifacts">Artifact contracts</a>
+        <a href="#console">Operator console</a>
+        <a href="#backup">Backup and recovery</a>
+        <a href="#deploy">Domain deployment</a>
+        <a href="#updates">Updates and rollback</a>
+        <a href="#errors">Errors and troubleshooting</a>
+        <a href="#integration">Android and TouchDesigner integration</a>
+      </div>
+    </section>
+
+    <section id="architecture" class="card documentation-section">
+      <h3><span>01</span> Architecture and access</h3>
+      <p>Moonli runs the full tagged generation pipeline behind Nginx. A production client makes one synchronous <code>POST /v1/generate</code> request and receives either a finished PNG or a verified layered ZIP. The pipeline tag is part of the request; Android and TouchDesigner are not separate API pipelines.</p>
+      <ul>
+        <li><strong>Public:</strong> Nginx on HTTPS exposes the web UI, <code>/health</code>, <code>/v1/generate</code>, and an allow-list of authenticated operator routes.</li>
+        <li><strong>Loopback only:</strong> readiness, updater catalog, and rollback restore use <code>127.0.0.1:18000</code>.</li>
+        <li><strong>Concealed:</strong> metrics, framework docs, databases, storage paths, legacy endpoints, Docker, and updater internals are not exposed through Nginx.</li>
+      </ul>
+      <p>Operator authentication uses an Access Key of at least 24 characters. A successful login creates a short-lived HttpOnly SameSite session; state-changing operator requests also require CSRF. Rotating the Access Key revokes all browser sessions. Client requests use independent Bearer credentials plus persistent device identities. No VPN or mTLS is required.</p>
+    </section>
+
+    <section id="startup" class="card documentation-section">
+      <h3><span>02</span> First production startup</h3>
+      <ol>
+        <li>Configure the public hostname, allowed hosts, trusted TLS files, and independent random service credentials.</li>
+        <li>Choose Google for the required providers and enter exact model names in Configuration. Production rejects mock providers, blank model names, development credentials, wildcard hosts, and a Google key placed in <code>.env</code>.</li>
+        <li>Start the stack, sign in, and save the Google API key on Production. Starting without this key is allowed so that it can be provisioned through the browser; generation remains unavailable until then.</li>
+        <li>Run a text and audio test for each required pipeline, download the artifacts, and verify a logical backup before connecting real clients.</li>
+      </ol>
+      <p>The persistent Google key is verified through Google's models API and written atomically to the dedicated secrets volume. The backend never returns the value or a mask. It is excluded from <code>.env</code>, browser storage, audit, backups, and release artifacts.</p>
+    </section>
+
+    <section id="api" class="card documentation-section">
+      <h3><span>03</span> Production client API</h3>
+      <h4>Text request</h4>
+      <pre><code>POST /v1/generate HTTP/1.1
+Host: moonli.example.com
+Authorization: Bearer &lt;client-api-key&gt;
+X-Moonli-Device-Id: td-02941846
+Idempotency-Key: 4c4058a6-fd85-4cf3-bf18-7fa475dd0ceb
+Content-Type: application/json
+
+{"type":"text","pipeline":"pipeline-1","text":"A red tree on a small island"}</code></pre>
+      <h4>Audio request</h4>
+      <pre><code>POST /v1/generate HTTP/1.1
+Host: moonli.example.com
+Authorization: Bearer &lt;client-api-key&gt;
+X-Moonli-Device-Id: aa-26093758
+Idempotency-Key: f78a3993-04c5-40d0-bc46-60dbc154106e
+Content-Type: multipart/form-data; boundary=...
+
+type=audio
+pipeline=pipeline-2
+audio=&lt;audio file&gt;</code></pre>
+      <p>Each request selects exactly one server-owned profile: <code>pipeline-1</code> or <code>pipeline-2</code>. Do not send provider, palette, stage, or table fields. The server rejects missing, unknown, or misspelled tags. Audio type and size are validated before provider work begins.</p>
+      <div class="documentation-callout"><strong>Idempotency.</strong> Use a new UUID for a new logical request. If transport fails, retry the identical payload with the same key. A completed result is replayed without another generation. Reusing the key with a changed payload produces <code>IDEMPOTENCY_CONFLICT</code>; a concurrent duplicate produces <code>GENERATION_IN_PROGRESS</code> and <code>Retry-After</code>.</div>
+    </section>
+
+    <section id="devices" class="card documentation-section">
+      <h3><span>04</span> Device identity</h3>
+      <p>On first start, TouchDesigner creates <code>td-</code> plus eight cryptographically random decimal digits; Android creates <code>aa-</code> plus eight such digits. The client persists that value in installation-local storage and sends it on every generation request as <code>X-Moonli-Device-Id</code>.</p>
+      <p>The server automatically registers the identifier and counts every production attempt. The Devices page displays type, registration time, lifetime request count, and status. Blocking stops the device before the pipeline starts; unblocking restores its access. The prefix is descriptive only: either device type may call either pipeline. The device ID is not a credential and never replaces Bearer authentication.</p>
+    </section>
+
+    <section id="pipeline" class="card documentation-section">
+      <h3><span>05</span> Processing pipeline</h3>
+      <table>
+        <thead><tr><th>Stage</th><th>Input</th><th>Output and rule</th></tr></thead>
+        <tbody>
+          <tr><td>1 · Transcription</td><td>Audio</td><td>Source text; omitted for text input.</td></tr>
+          <tr><td>2 · Normalization</td><td>Source text</td><td>Concise English visual intent with filler and test commentary removed.</td></tr>
+          <tr><td>3 · Prompt builder</td><td>Normalized phrase</td><td>Pipeline-specific technical prompt with canvas, palette, and style constraints.</td></tr>
+          <tr><td>4 · Generation</td><td>Technical prompt</td><td>Provider result converted to PNG.</td></tr>
+          <tr><td>5 · Quantization</td><td>Provider PNG</td><td>Exact versioned palette using nearest CIE Lab color and optional 3×3 cleanup.</td></tr>
+          <tr><td>6 · Validation</td><td>Quantized PNG</td><td>Strict zero-tolerance color and alpha report.</td></tr>
+          <tr><td>7 · Vectorization</td><td>Strict PNG</td><td>Palette-safe SVG where applicable.</td></tr>
+          <tr><td>8 · Segmentation</td><td>Vector/raster data</td><td>Stable ordered layer package for <code>pipeline-2</code>.</td></tr>
+        </tbody>
+      </table>
+      <p>Normalization is intentionally independent from Prompt Builder. A spoken request can become a phrase such as <code>cute penguin icon</code>; the builder then adds the technical instructions. This prevents greetings, hesitations, and test narration from becoming part of the image subject.</p>
+    </section>
+
+    <section id="artifacts" class="card documentation-section">
+      <h3><span>06</span> Artifact contracts</h3>
+      <p><code>pipeline-1</code> returns <code>image/png</code> as <code>moonli.png</code>. <code>pipeline-2</code> returns <code>application/vnd.moonli.layers+zip</code> as <code>moonli-layers.zip</code>. Both include <code>X-Moonli-Run-Id</code>, <code>X-Moonli-Result-SHA256</code>, <code>X-Moonli-Device-Id</code>, and <code>X-Idempotent-Replay</code>.</p>
+      <pre><code>manifest.json
+composite.png
+layers/00.png
+...
+layers/11.png</code></pre>
+      <p>The layered contract always contains twelve full-canvas RGBA slots. Unused slots are transparent PNGs with <code>used:false</code>. Every visible pixel is fully opaque and equals its declared palette color; transparent pixels are exactly zero RGBA. The server validates safe relative names, duplicate members, checksums, dimensions, slot ordering, exact colors, alpha, ZIP integrity, and pixel-perfect layer recomposition.</p>
+      <p>The Test Calls full-run ZIP is diagnostic and contains every applicable intermediate: source text or audio, normalized text, technical prompt, generated image, quantized image, validation result, vector image, and layers, plus pipeline and input-type metadata.</p>
+    </section>
+
+    <section id="console" class="card documentation-section">
+      <h3><span>07</span> Operator console</h3>
+      <ul>
+        <li><strong>Overview:</strong> CPU, RAM, disk, uptime, total and 24-hour production request/token usage, and usage history.</li>
+        <li><strong>Test Calls:</strong> full diagnostic run plus eight independently callable stages with copy, download, and pass-forward actions.</li>
+        <li><strong>Configuration:</strong> providers, exact model names, endpoint, timeout, attempts, cleanup passes, templates, appearance, Access Key rotation, backup, and updates.</li>
+        <li><strong>Production:</strong> persistent Google key status and six exact request templates—two client requests and four internal Google requests.</li>
+        <li><strong>Devices:</strong> registered installation identities, counters, registration time, blocking, and unblocking.</li>
+        <li><strong>Activity:</strong> redacted tab-local calls and retained server audit, with ZIP export.</li>
+      </ul>
+      <p>The test-stage key exists only in the current browser tab and is cleared on refresh or sign-out. It is separate from the persistent production key.</p>
+    </section>
+
+    <section id="backup" class="card documentation-section">
+      <h3><span>08</span> Backup and recovery</h3>
+      <p>The logical ZIP uses format <code>moonli-logical-backup</code>, schema version 2, and a SHA-256 digest for every member. It includes runs, usage, registered devices and block state, non-secret settings, operator verifier, retained audit, and referenced completed artifacts. It excludes all Google/client/updater keys, cookies, sessions, <code>.env</code>, staging files, and releases.</p>
+      <p>Restore validates a 128 MiB compressed limit, a 256 MiB uncompressed limit, compression ratio, member count, path safety, link rejection, duplicate names, schema, and every digest before mutating state. It first creates a pre-restore snapshot and automatically reapplies it on failure. The five newest restore points are kept. A successful restore revokes browser sessions.</p>
+      <p>Audit retention is bounded by 10,000 events, 30 days, and 64 MiB estimated payload. Usage retention is bounded by 1,000,000 rows and 365 days. Container stdout rotates at three files of 10 MiB. Protect the secrets volume with a separate encrypted host-level backup because it is intentionally absent from logical snapshots.</p>
+    </section>
+
+    <section id="deploy" class="card documentation-section">
+      <h3><span>09</span> Domain deployment</h3>
+      <ol>
+        <li>Point the Moonli hostname to the server and allow inbound TCP 80/443.</li>
+        <li>Install the trusted certificate and private key in the configured Nginx TLS paths.</li>
+        <li>Use independent strong operator, client, catalog, restore, and updater credentials.</li>
+        <li>Configure exact providers and Google models, then validate the production Compose configuration.</li>
+        <li>Start the stack, verify public <code>/health</code> and loopback <code>/readyz</code>, then save the Google key in the UI.</li>
+      </ol>
+      <pre><code>docker compose --env-file /opt/moonli/.env \
+  -f docker-compose.yml -f compose.production.yml config
+docker compose --env-file /opt/moonli/.env \
+  -f docker-compose.yml -f compose.production.yml up -d --wait
+curl --fail https://moonli.example.com/health</code></pre>
+      <p>Never expose 8000 or 18000 externally and never copy a workstation <code>.env</code> to the server. Unknown hosts return 421. Generation may take several minutes, so Nginx and clients use timeouts of at least 300 seconds. Keep normal TLS certificate verification enabled.</p>
+    </section>
+
+    <section id="updates" class="card documentation-section">
+      <h3><span>10</span> Updates and rollback</h3>
+      <p>The host updater is based on <code>psewdon1m-exocortex/updater</code> at the pinned reviewed commit and communicates with Moonli through a Unix socket. The application never receives the Docker socket. It can request only a semantic Moonli version and cannot inject commands, image names, repositories, URLs, or service names.</p>
+      <p>Stable releases use <code>moonli-vX.Y.Z</code>, a signed-off <code>moonli-release.json</code>, a checksummed Compose bundle, and an immutable container image digest. Before mutation, Moonli creates a backup. The updater validates the release, changes image/version atomically, and checks loopback and public health. Failure restores the previous version and backup.</p>
+      <div class="documentation-callout"><strong>Important:</strong> one-click updates are image-only. Compose, Nginx, mount, or host-unit changes require the reviewed repair/install path after downloading an operator snapshot.</div>
+    </section>
+
+    <section id="errors" class="card documentation-section">
+      <h3><span>11</span> Errors and troubleshooting</h3>
+      <pre><code>{"error":{"code":"PALETTE_VALIDATION_FAILED","message":"Unable to generate an image that matches the allowed palette."}}</code></pre>
+      <table>
+        <thead><tr><th>Code</th><th>Meaning and action</th></tr></thead>
+        <tbody>
+          <tr><td><code>INVALID_DEVICE_ID</code></td><td>Use <code>td-########</code> or <code>aa-########</code> and persist it.</td></tr>
+          <tr><td><code>DEVICE_BLOCKED</code></td><td>The operator blocked this installation; review it on Devices.</td></tr>
+          <tr><td><code>UNAUTHORIZED</code></td><td>The Bearer credential is missing or wrong.</td></tr>
+          <tr><td><code>GOOGLE_KEY_NOT_CONFIGURED</code></td><td>Save the persistent key on Production.</td></tr>
+          <tr><td><code>PROMPT_NORMALIZATION_FAILED</code></td><td>Check normalization model access, endpoint, key, and timeout.</td></tr>
+          <tr><td><code>GENERATION_IN_PROGRESS</code></td><td>Honor <code>Retry-After</code> and retry the same payload/key.</td></tr>
+          <tr><td><code>IDEMPOTENCY_CONFLICT</code></td><td>A changed request reused a key; allocate a new UUID.</td></tr>
+          <tr><td><code>RATE_LIMITED</code></td><td>Honor HTTP 429 and <code>Retry-After</code>.</td></tr>
+          <tr><td><code>PALETTE_QUANTIZATION_FAILED</code> / <code>PALETTE_VALIDATION_FAILED</code></td><td>Inspect generated and quantized PNG artifacts from a full run.</td></tr>
+        </tbody>
+      </table>
+      <p>Other stable codes include <code>INVALID_INPUT</code>, <code>AUDIO_TOO_LARGE</code>, <code>TRANSCRIPTION_FAILED</code>, <code>PROMPT_BUILD_FAILED</code>, <code>IMAGE_GENERATION_FAILED</code>, <code>OUTPUT_VALIDATION_FAILED</code>, <code>RESULT_EXPIRED</code>, and <code>INTERNAL_ERROR</code>. Use <code>X-Moonli-Run-Id</code> to correlate a response with the redacted server audit.</p>
+    </section>
+
+    <section id="integration" class="card documentation-section">
+      <h3><span>12</span> Android and TouchDesigner integration</h3>
+      <h4>TouchDesigner</h4>
+      <ul>
+        <li>Add an external, diffable API module beside the canonical <code>Player.toe</code>; keep credentials outside the project file and Git.</li>
+        <li>Persist <code>td-########</code>, call only <code>/v1/generate</code>, use a UUID and 300-second timeout, and reuse the UUID after transport failure.</li>
+        <li>Accept the expected media type, stream to staging, verify the response SHA-256 and decode, then atomically rename and load the result.</li>
+        <li>Remove client-side pipeline-stage knowledge and legacy <code>/data</code> or <code>/proxy/image</code> calls.</li>
+      </ul>
+      <h4>Android</h4>
+      <ul>
+        <li>Add Internet permission, a pinned streaming HTTP client, an HTTPS-only base domain, Android Keystore-backed credentials, and DataStore-backed <code>aa-########</code>.</li>
+        <li>Implement JSON text and multipart audio through the one production endpoint with cancellation and idempotent retry.</li>
+        <li>Validate layer packages for safe paths, sizes, counts, CRC, manifest contract, SHA-256, dimensions, colors, and alpha before atomic storage.</li>
+        <li>Render the twelve downloaded layers in manifest order; do not poll backend stages.</li>
+      </ul>
+      <p>Android and TouchDesigner source projects are intentionally not edited by the backend repository. Apply these changes in their own repositories and provision an independent credential per installation where practical.</p>
+    </section>
+  </main>
+</body>
+</html>

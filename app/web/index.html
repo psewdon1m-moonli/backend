@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Moonli</title>
+  <link rel="icon" type="image/png" href="/web/assets/halftone-moon-alpha.png?v=20260903-10">
+  <link rel="stylesheet" href="/web/styles.css?v=20260904-13">
+  <script src="/web/app.js?v=20260904-13" defer></script>
+</head>
+<body>
+  <div id="noticeStack" class="notice-stack" aria-live="polite" aria-atomic="true"></div>
+
+  <main id="loginView" class="login-view">
+    <div class="login-composition">
+      <div class="login-brand" aria-label="Moonli">
+        <img class="login-mark" src="/web/assets/moonli-mark.png" alt="">
+        <span class="login-wordmark">Moonli</span>
+      </div>
+      <form id="loginForm" class="login-panel" novalidate>
+        <div id="reachabilityBox" class="reachability is-checking" role="status">
+          <span id="reachabilityText">Checking service</span>
+          <span class="status-square" aria-hidden="true"></span>
+        </div>
+        <div class="login-fields">
+          <label class="sr-only" for="accessKey">Access Key</label>
+          <input id="accessKey" type="password" autocomplete="current-password"
+                 placeholder="Access Key..." required minlength="24">
+          <button id="loginButton" type="submit">Sign in to Moonli</button>
+          <p id="loginError" class="form-message" role="alert"></p>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <div id="appShell" class="app-shell hidden">
+    <button id="mobileMenuButton" class="mobile-menu-button" type="button"
+            aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">MENU</button>
+    <aside id="sidebar" class="sidebar" aria-label="Primary navigation">
+      <div class="sidebar-brand">
+        <img class="brand-mark" src="/web/assets/halftone-moon-alpha.png" alt="" aria-hidden="true">
+        <div class="service-wordmark">Moonli</div>
+      </div>
+      <nav id="primaryNav" class="primary-nav">
+        <button class="nav-item active" type="button" data-view="overview">
+          <span>Overview</span><span class="nav-ordinal">01</span>
+        </button>
+        <button class="nav-item" type="button" data-view="stages">
+          <span>Test Calls</span><span class="nav-ordinal">02</span>
+        </button>
+        <button class="nav-item" type="button" data-view="configuration">
+          <span>Configuration</span><span class="nav-ordinal">03</span>
+        </button>
+        <button class="nav-item" type="button" data-view="production">
+          <span>Production</span><span class="nav-ordinal">04</span>
+        </button>
+        <button class="nav-item" type="button" data-view="devices">
+          <span>Devices</span><span class="nav-ordinal">05</span>
+        </button>
+        <button class="nav-item" type="button" data-view="activity">
+          <span>Activity</span><span class="nav-ordinal">06</span>
+        </button>
+        <button class="nav-item" type="button" data-view="documentation">
+          <span>Documentation</span><span class="nav-ordinal">07</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <button id="logoutButton" class="footer-link" type="button">Sign out</button>
+      </div>
+    </aside>
+
+    <main class="main-region">
+      <header class="page-header">
+        <h1 id="pageTitle" class="page-title">overview</h1>
+        <div class="header-status">
+          <span id="headerEnvironment">—</span>
+          <span id="headerStatus" class="status-inline"><i></i> Connected</span>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <section id="view-overview" class="view active" aria-labelledby="pageTitle">
+          <div class="dashboard-grid">
+            <article class="card span-2 metric-card system-metric-card">
+              <div class="card-meta"><span>SYS / 01</span><span class="metric-live">LIVE</span></div>
+              <h2>CPU usage</h2>
+              <p id="overviewCpu" class="metric-value">—</p>
+              <p class="metric-detail">Average server load</p>
+              <div class="metric-line"><span id="overviewCpuBar"></span></div>
+            </article>
+            <article class="card span-2 metric-card system-metric-card">
+              <div class="card-meta"><span>SYS / 02</span><span class="metric-live">LIVE</span></div>
+              <h2>RAM usage</h2>
+              <p id="overviewRam" class="metric-value">—</p>
+              <p id="overviewRamDetail" class="metric-detail">—</p>
+              <div class="metric-line"><span id="overviewRamBar"></span></div>
+            </article>
+            <article class="card span-2 metric-card system-metric-card">
+              <div class="card-meta"><span>SYS / 03</span><span class="metric-live">LIVE</span></div>
+              <h2>Disk usage</h2>
+              <p id="overviewDisk" class="metric-value">—</p>
+              <p id="overviewDiskDetail" class="metric-detail">—</p>
+              <div class="metric-line"><span id="overviewDiskBar"></span></div>
+            </article>
+            <article class="card span-2 metric-card system-metric-card">
+              <div class="card-meta"><span>SYS / 04</span><span class="metric-live">LIVE</span></div>
+              <h2>Uptime</h2>
+              <p id="overviewUptime" class="metric-value">—</p>
+              <p class="metric-detail">Server uptime</p>
+              <div class="metric-line"><span class="full"></span></div>
+            </article>
+            <article class="card span-4 titled-card api-usage-card">
+              <header class="card-header no-ordinal">
+                <h2>Production API usage</h2>
+                <span id="overviewStatsUpdated" class="chart-period">24H · —</span>
+              </header>
+              <div class="card-body usage-dashboard">
+                <div class="usage-summary-grid">
+                  <div class="usage-summary-item">
+                    <span>Total requests</span>
+                    <strong id="overviewRequestCount">—</strong>
+                    <small id="overviewWindowRequests">— in the last 24 hours</small>
+                  </div>
+                  <div class="usage-summary-item">
+                    <span>Tokens used</span>
+                    <strong id="overviewTokenCount">—</strong>
+                    <small id="overviewWindowTokens">— in the last 24 hours</small>
+                  </div>
+                </div>
+                <div class="usage-chart-wrap">
+                  <div class="usage-chart-legend" aria-hidden="true">
+                    <span><i class="request-swatch"></i>Requests</span>
+                    <span><i class="token-swatch"></i>Tokens</span>
+                  </div>
+                  <svg id="productionUsageChart" class="usage-chart" viewBox="0 0 1000 300"
+                       role="img" aria-label="Production API requests and tokens in the last 24 hours"></svg>
+                  <p id="productionUsageEmpty" class="chart-empty hidden">No production requests in this period.</p>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="view-stages" class="view" aria-labelledby="pageTitle">
+          <div class="content-grid full-run-grid">
+            <article class="card span-4 titled-card">
+              <header class="card-header no-ordinal"><h2>Full Run</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="pipelineForm" class="card-body form-layout">
+                <div class="form-grid cols-2">
+                  <label class="field"><span>Input Type</span>
+                    <select id="pipelineInputType" name="type">
+                      <option value="text">Text</option>
+                      <option value="audio">Audio</option>
+                    </select>
+                  </label>
+                  <label class="field"><span>Pipeline</span>
+                    <select id="pipelineTag" name="pipeline">
+                      <option value="pipeline-1">pipeline-1 · PNG</option>
+                      <option value="pipeline-2">pipeline-2 · ZIP / 12 layers</option>
+                    </select>
+                  </label>
+                </div>
+                <label id="pipelineTextField" class="field"><span>Source Text</span>
+                  <textarea id="pipelineText" rows="7" placeholder="Describe the scene and any mandatory constraints...">A calm moonlit garden with one red tree, without people.</textarea>
+                </label>
+                <label id="pipelineAudioField" class="field hidden"><span>Audio File</span>
+                  <input id="pipelineAudio" type="file" accept="audio/*,.wav,.mp3,.ogg,.m4a,.flac,.aac">
+                </label>
+                <div class="idempotency-row">
+                  <label class="field grow"><span>Idempotency-Key</span>
+                    <input id="pipelineIdempotency" type="text" readonly>
+                  </label>
+                  <button id="newIdempotency" type="button">New UUID</button>
+                </div>
+                <div class="action-row">
+                  <button id="runPipeline" class="primary-action" type="submit">Run Full Pipeline</button>
+                  <span class="form-hint">The result is a ZIP containing every applicable stage artifact; provider settings come from Configuration.</span>
+                </div>
+              </form>
+            </article>
+
+            <article class="card span-2 titled-card">
+              <header class="card-header no-ordinal"><h2>API request</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <div class="card-body response-body"><pre id="pipelineRequestPreview" class="code-output">The request has not been built yet.</pre></div>
+            </article>
+            <article class="card span-2 titled-card">
+              <header class="card-header no-ordinal"><h2>Result</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <div id="pipelineResult" class="card-body result-panel empty-state">The result will appear after the run.</div>
+            </article>
+          </div>
+
+          <div class="collection-command-bar" role="toolbar" aria-label="Stage filter">
+            <label class="collection-search"><span>FILTER</span><input id="stageSearch" type="search" placeholder="prompt, audio, image..."></label>
+            <div id="stageCount" class="collection-information">8 stages</div>
+            <button id="clearStageSearch" type="button">Clear</button>
+          </div>
+          <div id="stageCollection" class="content-grid collection-list">
+            <article class="card span-2 titled-card stage-card" data-search="transcription audio speech google mock">
+              <header class="card-header"><span>01</span><h2>Transcription · optional</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="transcriptionStageForm" class="card-body form-layout">
+                <label class="field"><span>Provider</span><select id="transcriptionStageProvider"><option value="mock">Mock</option><option value="google">Google</option></select></label>
+                <label class="field"><span>Audio File</span><input id="transcriptionStageAudio" type="file" required accept="audio/*,.wav,.mp3,.ogg,.m4a,.flac,.aac"></label>
+                <div class="action-row"><button class="primary-action" type="submit">Transcribe</button></div>
+                <pre id="transcriptionStageResult" class="code-output">Waiting for a request.</pre>
+                <div class="action-row">
+                  <button id="copyTranscriptionResult" type="button" disabled>Copy Text</button>
+                  <button id="transcriptionToNormalization" type="button" disabled>Pass to Normalization →</button>
+                </div>
+              </form>
+            </article>
+
+            <article class="card span-2 titled-card stage-card" data-search="prompt normalization visual intent cleanup translation google mock">
+              <header class="card-header"><span>02</span><h2>Prompt normalization</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="normalizationStageForm" class="card-body form-layout">
+                <label class="field"><span>Provider</span><select id="normalizationStageProvider"><option value="google">Google</option><option value="mock">Mock / pass-through</option></select></label>
+                <label class="field"><span>Conversational or Long Request</span><textarea id="normalizationStageText" rows="5">Hello, this is a test run. Please make an apple tree with red apples.</textarea></label>
+                <div class="action-row"><button class="primary-action" type="submit">Normalize Prompt</button></div>
+                <pre id="normalizationStageResult" class="code-output">Waiting for a request.</pre>
+                <div class="action-row">
+                  <button id="copyNormalizationResult" type="button" disabled>Copy Text</button>
+                  <button id="normalizationToPrompt" type="button" disabled>Pass to Prompt Builder →</button>
+                </div>
+              </form>
+            </article>
+
+            <article class="card span-2 titled-card stage-card" data-search="prompt builder template text visual brief">
+              <header class="card-header"><span>03</span><h2>Prompt builder</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="promptStageForm" class="card-body form-layout">
+                <div class="form-grid cols-2">
+                  <label class="field"><span>Pipeline</span><select id="promptStagePipeline"><option>pipeline-1</option><option>pipeline-2</option></select></label>
+                  <label class="field"><span>Template</span><select id="promptStageTemplate"><option value="custom">Configured</option><option value="server">Server default</option></select></label>
+                </div>
+                <label class="field"><span>Normalized Text</span><textarea id="promptStageText" rows="4">red tree on a small island</textarea></label>
+                <div class="action-row"><button class="primary-action" type="submit">Build Prompt</button></div>
+                <pre id="promptStageResult" class="code-output">Waiting for a request.</pre>
+                <div class="action-row">
+                  <button id="copyPromptResult" type="button" disabled>Copy Prompt</button>
+                  <button id="promptToImage" type="button" disabled>Pass to Generation →</button>
+                </div>
+              </form>
+            </article>
+
+            <article class="card span-2 titled-card stage-card" data-search="image generation google mock palette preview">
+              <header class="card-header"><span>04</span><h2>Image generation</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="imageStageForm" class="card-body form-layout">
+                <div class="form-grid cols-2">
+                  <label class="field"><span>Pipeline</span><select id="imageStagePipeline"><option>pipeline-1</option><option>pipeline-2</option></select></label>
+                  <label class="field"><span>Provider</span><select id="imageStageProvider"><option value="mock">Mock</option><option value="google">Google</option></select></label>
+                </div>
+                <label class="field"><span>Final Prompt</span><textarea id="imageStagePrompt" rows="5">Create a flat vector-like moon illustration using only the selected palette.</textarea></label>
+                <label class="check-field"><input id="imageStageValidate" type="checkbox" checked><span>Validate the response palette</span></label>
+                <div class="action-row"><button class="primary-action" type="submit">Generate Image</button></div>
+                <div id="imageStageResult" class="result-panel empty-state">Waiting for a request.</div>
+              </form>
+            </article>
+
+            <article class="card span-2 titled-card stage-card" data-search="palette quantization png colors cie lab cleanup">
+              <header class="card-header"><span>05</span><h2>Palette quantization</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="quantizationStageForm" class="card-body form-layout">
+                <div class="form-grid cols-2">
+                  <label class="field"><span>Pipeline</span><select id="quantizationStagePipeline"><option>pipeline-1</option><option>pipeline-2</option></select></label>
+                  <label class="field"><span>Cleanup passes</span><input id="quantizationStageCleanup" type="number" min="0" max="3" step="1" value="1"></label>
+                </div>
+                <label class="field"><span>Source PNG</span><input id="quantizationStageImage" type="file" required accept="image/png"></label>
+                <div class="action-row"><button class="primary-action" type="submit">Quantize to Palette</button></div>
+                <div id="quantizationStageResult" class="result-panel empty-state">Waiting for a request.</div>
+              </form>
+            </article>
+
+            <article class="card span-2 titled-card stage-card" data-search="palette validation png colors strict snap">
+              <header class="card-header"><span>06</span><h2>Palette validation</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="paletteStageForm" class="card-body form-layout">
+                <div class="form-grid cols-2">
+                  <label class="field"><span>Pipeline</span><select id="paletteStagePipeline"><option>pipeline-1</option><option>pipeline-2</option></select></label>
+                  <label class="field"><span>Strict tolerance</span><input id="paletteStageSnap" type="number" min="0" max="0" step="1" value="0" readonly></label>
+                </div>
+                <label class="field"><span>PNG Image</span><input id="paletteStageImage" type="file" required accept="image/png"></label>
+                <div class="action-row"><button class="primary-action" type="submit">Validate Palette</button></div>
+                <pre id="paletteStageResult" class="code-output">Waiting for a request.</pre>
+                <div class="action-row">
+                  <button id="copyPaletteResult" type="button" disabled>Copy Report</button>
+                  <button id="paletteToVectorization" type="button" disabled>Pass to Vectorization →</button>
+                </div>
+              </form>
+            </article>
+
+            <article class="card span-2 titled-card stage-card" data-search="vectorization vector svg png palette paths">
+              <header class="card-header"><span>07</span><h2>Vectorization</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="vectorizationStageForm" class="card-body form-layout">
+                <label class="field"><span>Pipeline</span><select id="vectorizationStagePipeline"><option>pipeline-1</option><option>pipeline-2</option></select></label>
+                <label class="field"><span>Strict palette PNG</span><input id="vectorizationStageImage" type="file" required accept="image/png"></label>
+                <div class="action-row"><button class="primary-action" type="submit">Create SVG</button></div>
+                <div id="vectorizationStageResult" class="result-panel empty-state">Waiting for a request.</div>
+              </form>
+            </article>
+
+            <article class="card span-2 titled-card stage-card" data-search="segmentation segment svg layers zip palette">
+              <header class="card-header"><span>08</span><h2>Segmentation</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="segmentationStageForm" class="card-body form-layout">
+                <label class="field"><span>Pipeline</span><select id="segmentationStagePipeline"><option>pipeline-1</option><option>pipeline-2</option></select></label>
+                <label class="field"><span>Moonli vector SVG</span><input id="segmentationStageVector" type="file" required accept="image/svg+xml,.svg"></label>
+                <div class="action-row"><button class="primary-action" type="submit">Split into Layers</button></div>
+                <div id="segmentationStageResult" class="result-panel empty-state">Waiting for a request.</div>
+              </form>
+            </article>
+          </div>
+        </section>
+
+        <section id="view-configuration" class="view" aria-labelledby="pageTitle">
+          <div class="content-grid">
+            <article class="card span-4 titled-card">
+              <header class="card-header"><span>01</span><h2>Google connection</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="googleSettingsForm" class="card-body form-layout">
+                <div class="settings-group">
+                  <h3>Full run defaults and Google endpoint</h3>
+                  <p>The full run uses these providers and parameters. The backend stores non-secret values in the persistent Docker volume.</p>
+                  <div class="form-grid cols-3">
+                    <label class="field"><span>Image provider</span>
+                      <select id="settingsImageProvider"><option value="mock">Mock</option><option value="google">Google</option></select>
+                    </label>
+                    <label class="field"><span>Transcription provider</span>
+                      <select id="settingsTranscriptionProvider"><option value="mock">Mock</option><option value="google">Google</option></select>
+                    </label>
+                    <label class="field"><span>Normalization provider</span>
+                      <select id="settingsNormalizationProvider"><option value="google">Google</option><option value="mock">Mock / pass-through</option></select>
+                    </label>
+                    <label class="field"><span>Quantization cleanup passes</span>
+                      <input id="settingsCleanupPasses" type="number" min="0" max="3" step="1">
+                    </label>
+                    <label class="field"><span>Generation attempts</span>
+                      <input id="settingsGenerationAttempts" type="number" min="1" max="5" step="1">
+                    </label>
+                  </div>
+                  <div class="form-grid cols-2">
+                    <label class="field"><span>Base URL</span><input id="googleBaseUrl" type="url"></label>
+                    <label class="field"><span>Timeout, seconds</span><input id="googleTimeout" type="number" min="1" max="300"></label>
+                    <label class="field"><span>Image model</span><input id="googleImageModel" type="text" placeholder="model-name"></label>
+                    <label class="field"><span>Transcription model</span><input id="googleTranscriptionModel" type="text" placeholder="model-name"></label>
+                    <label class="field"><span>Normalization model</span><input id="googleNormalizationModel" type="text" placeholder="model-name"></label>
+                    <label class="field"><span>Aspect ratio</span><select id="googleAspectRatio"><option>1:1</option><option>2:3</option><option>3:2</option><option>3:4</option><option>4:3</option><option>9:16</option><option>16:9</option></select></label>
+                    <label class="field"><span>Image size</span><select id="googleImageSize"><option>1K</option><option>2K</option><option>4K</option></select></label>
+                  </div>
+                  <div class="action-row"><button class="primary-action" type="submit">Apply Settings</button></div>
+                </div>
+                <div class="settings-group">
+                  <h3>Test Google API Key</h3>
+                  <p>Used by test stages only. It is never written to localStorage and is cleared on sign-out.</p>
+                  <div class="secret-status-row">
+                    <span id="googleKeyStatus">No key set for this tab</span>
+                    <span id="googleKeyIndicator" class="status-square"></span>
+                  </div>
+                  <div class="action-row">
+                    <button id="openGoogleKeyDialog" type="button">Enter Google API Key</button>
+                    <button id="clearGoogleKey" type="button">Clear Tab Key</button>
+                  </div>
+                </div>
+              </form>
+            </article>
+
+            <article class="card span-4 titled-card">
+              <header class="card-header"><span>02</span><h2>Prompt templates</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="templatesForm" class="card-body form-layout">
+                <p>Available placeholders: <code id="templateFields">—</code></p>
+                <div class="template-grid">
+                  <label class="field"><span>pipeline-1 template</span><textarea id="templatePipeline1" rows="18"></textarea></label>
+                  <label class="field"><span>pipeline-2 template</span><textarea id="templatePipeline2" rows="18"></textarea></label>
+                </div>
+                <div class="action-row">
+                  <button class="primary-action" type="submit">Apply Templates</button>
+                  <button id="resetTemplates" type="button">Reset to Defaults</button>
+                </div>
+              </form>
+            </article>
+
+            <article class="card span-4 titled-card">
+              <header class="card-header"><span>03</span><h2>Appearance</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <div class="card-body settings-group">
+                <h3>Accent color</h3>
+                <p>The preview updates immediately; the change is saved only when you select Apply.</p>
+                <div class="appearance-row">
+                  <span id="accentSwatch" class="color-swatch" aria-hidden="true"></span>
+                  <label class="sr-only" for="accentColor">Accent color</label>
+                  <input id="accentColor" type="text" value="#00A8FF" maxlength="7">
+                  <button id="resetAccent" type="button">Reset color</button>
+                  <button id="applyAccent" type="button">Apply color</button>
+                </div>
+              </div>
+            </article>
+
+            <article class="card span-4 titled-card">
+              <header class="card-header"><span>04</span><h2>Security</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="rotateAccessKeyForm" class="card-body form-layout">
+                <p class="form-hint">Changing the operator Access Key revokes every browser session. Android and TouchDesigner client API keys are not changed.</p>
+                <div class="form-grid cols-2">
+                  <label class="field"><span>Current Access Key</span><input id="currentOperatorKey" type="password" autocomplete="current-password" required minlength="24"></label>
+                  <label class="field"><span>New Access Key</span><input id="newOperatorKey" type="password" autocomplete="new-password" required minlength="24"></label>
+                </div>
+                <div class="action-row"><button class="primary-action" type="submit">Change Access Key</button></div>
+              </form>
+            </article>
+
+            <article class="card span-4 titled-card">
+              <header class="card-header"><span>05</span><h2>Backup and recovery</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <div class="card-body form-layout">
+                <p class="form-hint">The logical ZIP excludes Google, client and updater keys, browser sessions, and .env. A pre-restore snapshot is created automatically before restore.</p>
+                <div class="action-row"><button id="createBackup" class="primary-action" type="button">Create and Download Snapshot</button></div>
+                <label class="field"><span>Snapshot to Inspect or Restore</span><input id="restoreBackupFile" type="file" accept="application/zip,.zip"></label>
+                <div class="action-row">
+                  <button id="inspectBackup" type="button">Inspect Snapshot</button>
+                  <button id="restoreBackup" type="button">Restore snapshot</button>
+                </div>
+                <pre id="backupResult" class="code-output">No snapshot selected.</pre>
+              </div>
+            </article>
+
+            <article class="card span-4 titled-card">
+              <header class="card-header"><span>06</span><h2>Updates</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <div class="card-body form-layout">
+                <p class="form-hint">Download an operator snapshot before installation. The local host updater uses a Unix socket and enforces checksums, an immutable image digest, server backup, health checks, and rollback. One-click updates are safe for image-only releases; Compose topology changes require an explicit repair or install.</p>
+                <div class="action-row">
+                  <button id="checkUpdates" type="button">Check for Updates</button>
+                  <button id="installUpdate" class="primary-action" type="button">Install Latest Stable</button>
+                  <button id="rollbackUpdate" type="button" disabled>Roll Back Last Job</button>
+                </div>
+                <pre id="updateResult" class="code-output">Updater status has not been requested.</pre>
+              </div>
+            </article>
+
+          </div>
+        </section>
+
+        <section id="view-production" class="view" aria-labelledby="pageTitle">
+          <div class="content-grid">
+            <article class="card span-4 titled-card">
+              <header class="card-header"><span>01</span><h2>Production Google API Key</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <form id="productionGoogleKeyForm" class="card-body form-layout">
+                <p class="form-hint">The key is sent to the backend over a protected request and stored in a dedicated Docker volume. It is never written to .env, localStorage, the activity log, or returned to the browser.</p>
+                <div id="productionKeyStatusRow" class="secret-status-row">
+                  <span id="productionKeyStatus">Production key is not configured</span>
+                  <span id="productionKeyIndicator" class="status-square" aria-hidden="true"></span>
+                </div>
+                <div class="form-grid cols-2">
+                  <label class="field"><span>New Google API Key</span>
+                    <input id="productionGoogleKey" type="password" autocomplete="new-password" placeholder="Enter a new key to save or replace the current key">
+                  </label>
+                  <div class="static-field"><span>Storage</span><strong id="productionKeyStorage">Docker volume</strong></div>
+                </div>
+                <div class="action-row">
+                  <button id="saveProductionGoogleKey" class="primary-action" type="submit">Save Production Key</button>
+                  <button id="clearProductionGoogleKey" type="button">Delete Production Key</button>
+                  <span class="form-hint">The backend validates the key with Google before saving it. The field is cleared afterward; only configured status remains visible.</span>
+                </div>
+              </form>
+            </article>
+
+            <article class="card span-4 titled-card">
+              <header class="card-header"><span>02</span><h2>Production API requests · 2 client + 4 internal</h2><span class="drag-dots" aria-hidden="true"></span></header>
+              <div class="card-body production-request-grid">
+                <label class="field"><span>01 · Client · text input</span><textarea id="productionRequestClientText" class="production-request" rows="18" readonly></textarea></label>
+                <label class="field"><span>02 · Client · audio input</span><textarea id="productionRequestClientAudio" class="production-request" rows="18" readonly></textarea></label>
+                <label class="field"><span>03 · Google · transcription</span><textarea id="productionRequestTranscription" class="production-request" rows="22" readonly></textarea></label>
+                <label class="field"><span>04 · Google · prompt normalization</span><textarea id="productionRequestNormalization" class="production-request" rows="22" readonly></textarea></label>
+                <label class="field"><span>05 · Google · image · pipeline-1</span><textarea id="productionRequestImageP1" class="production-request" rows="28" readonly></textarea></label>
+                <label class="field"><span>06 · Google · image · pipeline-2</span><textarea id="productionRequestImageP2" class="production-request" rows="28" readonly></textarea></label>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="view-devices" class="view" aria-labelledby="pageTitle">
+          <article class="card span-4 titled-card">
+            <header class="card-header no-ordinal">
+              <h2>Connected Devices</h2>
+              <span id="deviceCount" class="collection-information">—</span>
+            </header>
+            <div class="card-body">
+              <div class="device-toolbar">
+                <p>A device is registered on its first production request with a <code>td-########</code> or <code>aa-########</code> identifier. Device type does not restrict pipeline selection.</p>
+                <button id="refreshDevices" type="button">Refresh</button>
+              </div>
+              <div id="deviceList" class="device-list" aria-live="polite">
+                <p class="device-empty">The device list has not been loaded.</p>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section id="view-activity" class="view" aria-labelledby="pageTitle">
+          <article class="card span-4 titled-card activity-card">
+            <header class="card-header"><span>01</span><h2>Request log</h2><span class="drag-dots" aria-hidden="true"></span></header>
+            <div class="card-body">
+              <div class="activity-toolbar">
+                <p>Current tab only, up to 100 entries. Secrets are redacted.</p>
+                <button id="clearActivity" type="button">Clear Log</button>
+              </div>
+              <div class="log-table" role="table" aria-label="API request log">
+                <div class="log-row log-head" role="row"><span>TYPE</span><span>BODY</span><span>TIME</span></div>
+                <div id="activityRows"></div>
+              </div>
+            </div>
+          </article>
+          <article class="card span-4 titled-card activity-card">
+            <header class="card-header"><span>02</span><h2>Server audit</h2><span class="drag-dots" aria-hidden="true"></span></header>
+            <div class="card-body">
+              <div class="activity-toolbar">
+                <p>Up to 200 recent events; the server enforces limits of 10,000 records, 30 days, and 64 MiB.</p>
+                <div class="action-row">
+                  <button id="refreshAudit" type="button">Refresh</button>
+                  <button id="downloadAudit" type="button">Download ZIP</button>
+                </div>
+              </div>
+              <pre id="auditRows" class="code-output">Audit has not been loaded.</pre>
+            </div>
+          </article>
+        </section>
+
+        <section id="view-documentation" class="view documentation-view" aria-labelledby="pageTitle">
+          <div class="documentation-layout">
+            <aside class="card documentation-toc" aria-label="Documentation contents">
+              <p class="documentation-kicker">MOONLI HANDBOOK</p>
+              <h2>Contents</h2>
+              <nav>
+                <a href="#docs-overview">01 · System overview</a>
+                <a href="#docs-quick-start">02 · Quick start</a>
+                <a href="#docs-client-api">03 · Client API</a>
+                <a href="#docs-devices">04 · Device identity</a>
+                <a href="#docs-pipelines">05 · Pipeline stages</a>
+                <a href="#docs-artifacts">06 · Results and artifacts</a>
+                <a href="#docs-google">07 · Google and prompts</a>
+                <a href="#docs-operator">08 · Operator console</a>
+                <a href="#docs-backup">09 · Backup and recovery</a>
+                <a href="#docs-deployment">10 · Deployment</a>
+                <a href="#docs-updates">11 · Updates</a>
+                <a href="#docs-errors">12 · Errors</a>
+                <a href="#docs-clients">13 · Client integration</a>
+              </nav>
+              <a class="download-link" href="/web/operations.html" target="_blank" rel="noreferrer">Open Standalone Guide</a>
+            </aside>
+
+            <article class="card documentation-document">
+              <header class="documentation-hero">
+                <p class="documentation-kicker">OPERATIONS · API · CLIENTS</p>
+                <h2>Moonli Documentation</h2>
+                <p>This handbook describes the deployed service, its production API, the operator console, artifacts, recovery, and the changes required in Android and TouchDesigner clients.</p>
+              </header>
+
+              <section id="docs-overview" class="documentation-section">
+                <h3><span>01</span> System overview</h3>
+                <p>Moonli owns the complete tagged image-generation state machine. A client submits one authenticated request to <code>POST /v1/generate</code>, explicitly selects <code>pipeline-1</code> or <code>pipeline-2</code>, and receives the final artifact in the same HTTP response. The client type never selects or restricts the pipeline.</p>
+                <div class="documentation-callout"><strong>Production boundary.</strong> Nginx is the only public listener. Public traffic uses the configured HTTPS domain. The application port, databases, metrics, storage paths, legacy endpoints, test routes, updater catalog, and restore routes are not public.</div>
+                <p>Operator authentication, client authentication, device identity, and pipeline routing are separate concerns:</p>
+                <ul>
+                  <li>The operator signs in with an operator Access Key and receives an HttpOnly, SameSite browser session.</li>
+                  <li>Android and TouchDesigner authenticate with a Bearer client credential.</li>
+                  <li><code>X-Moonli-Device-Id</code> identifies a persistent client installation but is not a secret.</li>
+                  <li>The request field <code>pipeline</code> is the only selector for the processing profile.</li>
+                </ul>
+              </section>
+
+              <section id="docs-quick-start" class="documentation-section">
+                <h3><span>02</span> Quick start</h3>
+                <ol>
+                  <li>Sign in with the operator Access Key.</li>
+                  <li>Open <strong>Configuration</strong>, select the Google providers and enter the exact enabled model names for transcription, normalization, and image generation.</li>
+                  <li>Review the prompt templates for both pipelines and save the settings.</li>
+                  <li>Open <strong>Production</strong>, enter the Google API key, and save it. The backend verifies the key before persisting it.</li>
+                  <li>Use <strong>Test Calls</strong> to exercise individual stages or download a full-run artifact archive.</li>
+                  <li>Configure each real client with the HTTPS base domain and its Bearer credential. Generate and persist its device identifier before the first call.</li>
+                </ol>
+                <p>For local mock verification, the development stack can complete every processing stage without Google. Mock providers are rejected when the application runs in production mode.</p>
+              </section>
+
+              <section id="docs-client-api" class="documentation-section">
+                <h3><span>03</span> Production client API</h3>
+                <p>Both text and audio use the same endpoint. Every request requires a Bearer credential, a stable device identifier, and an idempotency key. Use a UUID for idempotency and reuse it only when retrying the same logical request.</p>
+                <h4>Text input</h4>
+                <pre><code>POST /v1/generate HTTP/1.1
+Host: moonli.example.com
+Authorization: Bearer &lt;client-api-key&gt;
+X-Moonli-Device-Id: td-02941846
+Idempotency-Key: 4c4058a6-fd85-4cf3-bf18-7fa475dd0ceb
+Content-Type: application/json
+
+{
+  "type": "text",
+  "pipeline": "pipeline-1",
+  "text": "A red tree on a small island, without people"
+}</code></pre>
+                <h4>Audio input</h4>
+                <pre><code>POST /v1/generate HTTP/1.1
+Host: moonli.example.com
+Authorization: Bearer &lt;client-api-key&gt;
+X-Moonli-Device-Id: aa-26093758
+Idempotency-Key: f78a3993-04c5-40d0-bc46-60dbc154106e
+Content-Type: multipart/form-data; boundary=...
+
+type=audio
+pipeline=pipeline-2
+audio=&lt;binary audio file&gt;</code></pre>
+                <p>Do not send palette, provider, stage, or table-selection fields. Unknown pipeline tags—including misspellings such as <code>pipelien-2</code>—are rejected. The server validates declared and streamed audio size before provider work begins.</p>
+                <div class="documentation-callout"><strong>Retry rule.</strong> A transport failure may occur after the server has completed a paid generation. Retry with the same idempotency key. A matching request returns the stored artifact; a different payload with the same key returns <code>IDEMPOTENCY_CONFLICT</code>.</div>
+              </section>
+
+              <section id="docs-devices" class="documentation-section">
+                <h3><span>04</span> Device identity and access</h3>
+                <p>Before its first production request, a client creates an identifier and stores it in installation-local persistent storage:</p>
+                <table>
+                  <thead><tr><th>Client</th><th>Format</th><th>Example</th></tr></thead>
+                  <tbody>
+                    <tr><td>TouchDesigner</td><td><code>td-</code> + 8 random digits</td><td><code>td-02941846</code></td></tr>
+                    <tr><td>Android app</td><td><code>aa-</code> + 8 random digits</td><td><code>aa-26093758</code></td></tr>
+                  </tbody>
+                </table>
+                <p>The server registers a valid identifier on first use and counts every production API attempt. The Devices page shows its type, registration time, lifetime request count, and status. Blocking a device rejects future requests with <code>DEVICE_BLOCKED</code> before the pipeline starts; unblocking restores access. Either prefix may call either pipeline.</p>
+                <p>Deleting application data may generate a new identity, so client storage should survive ordinary restarts and updates. The identifier does not replace the Bearer credential and must not be treated as authentication.</p>
+              </section>
+
+              <section id="docs-pipelines" class="documentation-section">
+                <h3><span>05</span> Pipeline stages</h3>
+                <table>
+                  <thead><tr><th>Stage</th><th>Purpose</th><th>Input → output</th></tr></thead>
+                  <tbody>
+                    <tr><td>1 · Transcription</td><td>Optional for audio requests.</td><td>Audio → source text</td></tr>
+                    <tr><td>2 · Normalization</td><td>Removes greetings, filler, and test commentary; extracts concise English visual intent.</td><td>Source text → normalized phrase</td></tr>
+                    <tr><td>3 · Prompt builder</td><td>Applies the pipeline template, palette contract, canvas, and exclusions.</td><td>Normalized phrase → technical prompt</td></tr>
+                    <tr><td>4 · Generation</td><td>Requests an image from the configured provider and converts the response to PNG.</td><td>Prompt → provider PNG</td></tr>
+                    <tr><td>5 · Quantization</td><td>Maps every visible pixel to the versioned palette in CIE Lab and optionally removes isolated speckles.</td><td>Provider PNG → strict-palette PNG</td></tr>
+                    <tr><td>6 · Validation</td><td>Requires exact palette colors and the expected alpha contract with zero tolerance.</td><td>PNG → validation report</td></tr>
+                    <tr><td>7 · Vectorization</td><td>Builds palette-safe vector paths where required by the output profile.</td><td>PNG → SVG</td></tr>
+                    <tr><td>8 · Segmentation</td><td>Creates the ordered fixed-slot layer package for layered output.</td><td>SVG/PNG → layer ZIP</td></tr>
+                  </tbody>
+                </table>
+                <p><code>pipeline-1</code> publishes the validated raster PNG. <code>pipeline-2</code> continues through vectorization and segmentation and publishes a twelve-slot layered package. The Test Calls page exposes every stage independently and lets an operator copy or download its output and pass it into the next stage.</p>
+              </section>
+
+              <section id="docs-artifacts" class="documentation-section">
+                <h3><span>06</span> Results and artifacts</h3>
+                <p><strong>pipeline-1</strong> returns <code>Content-Type: image/png</code> with the filename <code>moonli.png</code>. <strong>pipeline-2</strong> returns <code>application/vnd.moonli.layers+zip</code> with the filename <code>moonli-layers.zip</code>.</p>
+                <p>Successful production responses include <code>X-Moonli-Run-Id</code>, <code>X-Moonli-Result-SHA256</code>, <code>X-Moonli-Device-Id</code>, and <code>X-Idempotent-Replay</code>. Clients must stream the body to a staging file, verify the SHA-256 response digest, validate the expected media type, and atomically publish the completed file.</p>
+                <p>A <code>pipeline-2</code> package contains:</p>
+                <pre><code>manifest.json
+composite.png
+layers/00.png
+...
+layers/11.png</code></pre>
+                <p>Each layer is a full-canvas RGBA PNG. Transparent pixels are exactly <code>(0,0,0,0)</code>; visible pixels are fully opaque and use exactly the assigned slot color. Unused slots remain present as transparent images with <code>used:false</code>. The manifest records contract version, run ID, canvas, palette order, member paths, usage flags, and SHA-256 values. The backend verifies ZIP safety, member checksums, dimensions, colors, alpha, ordering, and pixel-perfect recomposition before publishing.</p>
+                <p>The operator full-run download is a diagnostic archive rather than the production response. It contains the applicable original text or audio, normalized text, technical prompt, generated PNG, quantized PNG, validation report, vector output, and layer artifacts, together with the selected pipeline and input type.</p>
+              </section>
+
+              <section id="docs-google" class="documentation-section">
+                <h3><span>07</span> Google providers and prompt templates</h3>
+                <p>The persistent Google API key is entered on the Production page. It is verified against Google, written atomically to the dedicated secrets volume, and never placed in <code>.env</code>, localStorage, logs, API responses, logical backups, or release files. The browser receives only configured status. Deleting the key disables Google-backed generation until a replacement is saved.</p>
+                <p>The key entered from Configuration is intentionally temporary: it exists only in the current tab's memory and is used by individual test-stage requests. Refreshing or signing out clears it.</p>
+                <p>Prompt normalization is a separate provider step. Its output should be a short English visual subject such as <code>yellow car</code>, <code>cute penguin icon</code>, or <code>doge on the ball</code>—not a transcript, greeting, or technical palette prompt. Prompt Builder then applies the selected pipeline template. Available placeholders are listed beside the template editor; both templates must be non-empty before saving.</p>
+              </section>
+
+              <section id="docs-operator" class="documentation-section">
+                <h3><span>08</span> Operator console</h3>
+                <ul>
+                  <li><strong>Overview</strong> reports CPU, RAM, disk, uptime, request counts, token counts, and a 24-hour usage chart.</li>
+                  <li><strong>Test Calls</strong> runs the complete diagnostic archive flow or one isolated processing stage.</li>
+                  <li><strong>Configuration</strong> controls providers, model names, endpoint, attempts, cleanup, templates, appearance, security, backup, and updates.</li>
+                  <li><strong>Production</strong> stores the persistent Google key and shows the exact two client and four provider requests used by the service.</li>
+                  <li><strong>Devices</strong> lists registered installations and blocks or unblocks API access.</li>
+                  <li><strong>Activity</strong> contains a redacted, tab-local request log and the retained server audit stream.</li>
+                </ul>
+                <p>Changing the operator Access Key requires the current key, enforces the minimum length, updates the persistent verifier, and revokes every active browser session. It does not rotate client or updater credentials.</p>
+              </section>
+
+              <section id="docs-backup" class="documentation-section">
+                <h3><span>09</span> Backup, restore, and retention</h3>
+                <p>A logical snapshot is a ZIP using format <code>moonli-logical-backup</code>, schema version 2, with a manifest and SHA-256 for every member. It includes runs, usage statistics, registered devices and block state, non-secret settings, the operator verifier, retained audit events, and referenced completed artifacts.</p>
+                <p>It deliberately excludes the Google key, client and updater credentials, cookies, sessions, <code>.env</code>, staging files, and release files. Back up the secrets volume separately using an encrypted host-level disaster-recovery procedure.</p>
+                <p>Before mutation, restore checks the 128 MiB compressed and 256 MiB uncompressed limits, compression ratios, member count, duplicate names, paths, links, schema, and all digests. It creates a pre-restore snapshot and reapplies it if restore fails. The service keeps the five newest restore points. A successful restore revokes browser sessions, so sign in again afterward.</p>
+                <p>Retention baselines are 10,000 audit events / 30 days / 64 MiB estimated payload, up to 1,000,000 usage rows / 365 days, and three rotated container log files of 10 MiB each.</p>
+              </section>
+
+              <section id="docs-deployment" class="documentation-section">
+                <h3><span>10</span> Domain-only deployment</h3>
+                <ol>
+                  <li>Point the production hostname's A/AAAA record to the server and allow inbound TCP 80/443.</li>
+                  <li>Install a trusted certificate and private key at the configured Nginx mount paths.</li>
+                  <li>Create independent random operator, client, catalog, restore, and updater credentials. Never copy a workstation <code>.env</code> to the server.</li>
+                  <li>Configure the exact hostname, allowed hosts, Google providers, and enabled model names.</li>
+                  <li>Validate Compose, install the stack, then save the Google API key from the authenticated Production page.</li>
+                </ol>
+                <p>Do not expose application ports 8000 or 18000. Port 18000 is loopback-only for readiness and local updater operations. Normal domain TLS is the intended boundary; VPN and mTLS are not required. Nginx allows the UI, health endpoint, client generation endpoint, and allow-listed operator routes. Unknown hosts receive 421 and concealed routes return 404.</p>
+                <pre><code>docker compose --env-file /opt/moonli/.env \
+  -f docker-compose.yml -f compose.production.yml config
+docker compose --env-file /opt/moonli/.env \
+  -f docker-compose.yml -f compose.production.yml up -d --wait
+curl --fail https://moonli.example.com/health</code></pre>
+                <p>Generation can take several minutes. Nginx uses a 300-second upstream timeout, so Android and TouchDesigner clients must use a call/read timeout of at least 300 seconds and keep TLS certificate verification enabled.</p>
+              </section>
+
+              <section id="docs-updates" class="documentation-section">
+                <h3><span>11</span> Updates and rollback</h3>
+                <p>The root-owned host updater is based on <code>psewdon1m-exocortex/updater</code> at the pinned reviewed commit. The web application receives only its Unix socket and never receives the Docker socket. Moonli may request a semantic release version but cannot provide arbitrary commands, repositories, image names, URLs, or services.</p>
+                <p>A valid release is named <code>moonli-vX.Y.Z</code> and includes <code>moonli-release.json</code>, a checksummed Compose bundle, and an immutable image digest. Before mutation the application creates a logical backup. The updater validates the release, pulls the image, updates version state atomically, and runs loopback and public health checks. Failure restores the previous image/version and invokes backup restore.</p>
+                <div class="documentation-callout"><strong>Update limitation.</strong> One-click updates are for image-only releases. Changes to Compose, Nginx topology, mounted paths, or host units require the reviewed repair/install procedure after downloading an operator-held snapshot.</div>
+              </section>
+
+              <section id="docs-errors" class="documentation-section">
+                <h3><span>12</span> Errors and troubleshooting</h3>
+                <p>API failures use a stable envelope and never expose a traceback or partial artifact:</p>
+                <pre><code>{
+  "error": {
+    "code": "PALETTE_VALIDATION_FAILED",
+    "message": "Unable to generate an image that matches the allowed palette."
+  }
+}</code></pre>
+                <table>
+                  <thead><tr><th>Code</th><th>Action</th></tr></thead>
+                  <tbody>
+                    <tr><td><code>INVALID_DEVICE_ID</code></td><td>Generate and persist the required prefix plus exactly eight digits.</td></tr>
+                    <tr><td><code>DEVICE_BLOCKED</code></td><td>Unblock the installation on Devices or investigate why it was disabled.</td></tr>
+                    <tr><td><code>UNAUTHORIZED</code></td><td>Check the Bearer client credential; the device ID is not a credential.</td></tr>
+                    <tr><td><code>GOOGLE_KEY_NOT_CONFIGURED</code></td><td>Save the persistent key on Production.</td></tr>
+                    <tr><td><code>PROMPT_NORMALIZATION_FAILED</code></td><td>Verify the normalization provider, model access, endpoint, key, and timeout.</td></tr>
+                    <tr><td><code>GENERATION_IN_PROGRESS</code></td><td>Wait for <code>Retry-After</code>, then retry the identical request and idempotency key.</td></tr>
+                    <tr><td><code>IDEMPOTENCY_CONFLICT</code></td><td>Use a new key for a changed input or pipeline.</td></tr>
+                    <tr><td><code>RATE_LIMITED</code></td><td>Honor HTTP 429 and <code>Retry-After</code>.</td></tr>
+                    <tr><td><code>PALETTE_QUANTIZATION_FAILED</code> / <code>PALETTE_VALIDATION_FAILED</code></td><td>Inspect the generated and quantized PNGs in a full-run archive; validation requires exact colors and alpha.</td></tr>
+                  </tbody>
+                </table>
+                <p>Other stable codes include <code>INVALID_INPUT</code>, <code>AUDIO_TOO_LARGE</code>, <code>TRANSCRIPTION_FAILED</code>, <code>PROMPT_BUILD_FAILED</code>, <code>IMAGE_GENERATION_FAILED</code>, <code>OUTPUT_VALIDATION_FAILED</code>, <code>RESULT_EXPIRED</code>, and <code>INTERNAL_ERROR</code>. Use the run ID to correlate the client response with the redacted server audit.</p>
+              </section>
+
+              <section id="docs-clients" class="documentation-section">
+                <h3><span>13</span> Android and TouchDesigner integration</h3>
+                <p>The backend repository does not modify either client project. Apply these integration changes in their own codebases:</p>
+                <h4>TouchDesigner</h4>
+                <ul>
+                  <li>Add one external, diffable HTTP client module beside the canonical <code>Player.toe</code>.</li>
+                  <li>Persist a securely randomized <code>td-########</code> identifier in installation-local configuration.</li>
+                  <li>Send one JSON or multipart <code>POST /v1/generate</code>, use a 300-second timeout, and reuse the UUID idempotency key after transport failure.</li>
+                  <li>Accept only the expected media type, verify <code>X-Moonli-Result-SHA256</code>, decode to a staging file, and atomically publish the result.</li>
+                  <li>Remove client knowledge of transcription, palettes, vectorization, segmentation, legacy jobs, <code>/data</code>, and <code>/proxy/image</code>.</li>
+                </ul>
+                <h4>Android</h4>
+                <ul>
+                  <li>Add Internet permission, a pinned streaming HTTP client, an HTTPS-only base domain, and Android Keystore-backed per-device credentials.</li>
+                  <li>Persist a securely randomized <code>aa-########</code> identifier with DataStore.</li>
+                  <li>Implement the single generation endpoint with text JSON and audio multipart, 300-second timeouts, cancellation, and idempotent retry.</li>
+                  <li>For layer ZIPs, enforce Zip Slip defenses, size/member limits, CRC, manifest schema, checksums, dimensions, colors, alpha, and safe atomic storage.</li>
+                  <li>Load the twelve local layers in manifest order. Do not poll individual backend stages.</li>
+                </ul>
+                <p>Both client types may request either pipeline. Separate per-device credentials remain recommended even though the pipeline and device prefix do not impose authorization roles.</p>
+              </section>
+            </article>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="googleKeyDialog" class="overlay hidden" role="presentation">
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="googleKeyDialogTitle">
+      <header class="dialog-header">
+        <h2 id="googleKeyDialogTitle">Google API Key</h2>
+        <button id="closeGoogleKeyDialog" type="button" aria-label="Close">×</button>
+      </header>
+      <form id="googleKeyForm" class="dialog-body">
+        <p>The value lasts only until refresh or sign-out and is sent as a secret test-call header. Configure the persistent production key separately on the Production page.</p>
+        <label class="field"><span>New Google API Key</span>
+          <input id="googleKeyInput" type="password" autocomplete="new-password" required>
+        </label>
+        <div class="action-row">
+          <button class="primary-action" type="submit">Use in This Tab</button>
+          <button id="cancelGoogleKeyDialog" type="button">Cancel</button>
+        </div>
+      </form>
+    </section>
+  </div>
+</body>
+</html>

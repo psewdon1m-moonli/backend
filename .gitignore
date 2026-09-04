@@ -1,0 +1,32 @@
+.env
+.env.*
+!.env.example
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+__pycache__/
+*.py[cod]
+data/
+.temp/
+.repo-audit/
+artifacts/
+.docs/
+frontend/
+
+# Legacy experiments and captured media are intentionally outside the backend repository.
+audio_handler/
+video_project/
+*.ogg
+*.wav
+*.mp4
+*.bin
+*.sqlite3*
+*.zip
+
+# Local probe inputs and generated provider outputs.
+_tmp_*
+_nano_*
+ComfyUI_*.json
+Generated Image*.jpg
+1.json
