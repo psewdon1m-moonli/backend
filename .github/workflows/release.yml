@@ -50,7 +50,7 @@ jobs:
       - name: Install locked dependencies and test
         run: |
           python -m pip install --require-hashes -r requirements-dev.lock
-          ./scripts/pre-push.sh
+          sh scripts/pre-push.sh
           docker compose config --quiet
       - name: Fetch and verify pinned updater source
         run: |
@@ -93,7 +93,7 @@ jobs:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
-          ./scripts/build-release.sh "${GITHUB_REF_NAME#moonli-v}" "$DIGEST" release-artifacts
+          bash scripts/build-release.sh "${GITHUB_REF_NAME#moonli-v}" "$DIGEST" release-artifacts
       - name: Attest release bundle
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:

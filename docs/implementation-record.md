@@ -72,7 +72,7 @@ application updater boundary accepts only a semantic version.
 ## Verification command
 
 ```text
-./scripts/pre-push.sh
+sh scripts/pre-push.sh
 ```
 
 It runs Ruff, Pytest, compilation, JavaScript syntax, secret/high-risk scanning,

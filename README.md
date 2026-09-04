@@ -93,7 +93,7 @@ responses, logical backups or release artifacts. Generation returns
 ## Pre-push and releases
 
 ```bash
-./scripts/pre-push.sh
+sh scripts/pre-push.sh
 git config core.hooksPath .githooks
 ```
 

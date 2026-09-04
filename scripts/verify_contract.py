@@ -33,6 +33,12 @@ def main() -> int:
         findings,
     )
     require(
+        "sh scripts/pre-push.sh" in release_workflow
+        and "bash scripts/build-release.sh" in release_workflow,
+        "release workflow must invoke shell scripts through explicit interpreters",
+        findings,
+    )
+    require(
         "ruff==" in development_lock and "pytest==" in development_lock,
         "development lock must include Ruff and pytest",
         findings,
