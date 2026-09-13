@@ -5,6 +5,7 @@ version="${1:?semantic version is required}"
 image_digest="${2:?image digest is required}"
 output="${3:-release-artifacts}"
 repository="psewdon1m-moonli/backend"
+root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
   echo "Release version must be stable semantic version text." >&2
@@ -23,8 +24,21 @@ updater_source="${UPDATER_SOURCE_DIR:?UPDATER_SOURCE_DIR must point at the pinne
   echo "Updater binary does not contain the required Moonli reconciliation revision." >&2
   exit 3
 }
+updater_unit="$root/deploy/updater.service"
+expected_read_write_paths="ReadWritePaths=/run/exocortex /var/lib/updater /etc/exocortex /opt/moonli"
+[[ -f "$updater_unit" ]] || {
+  echo "Moonli updater systemd unit is missing." >&2
+  exit 3
+}
+grep -Fqx "$expected_read_write_paths" "$updater_unit" || {
+  echo "Moonli updater systemd unit does not grant write access to /opt/moonli." >&2
+  exit 3
+}
+if grep -Fq '/opt/exocortex' "$updater_unit"; then
+  echo "Moonli updater systemd unit still targets the Exocortex install root." >&2
+  exit 3
+fi
 
-root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 output_path="$root/$output"
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
@@ -43,7 +57,7 @@ install -m 0644 "$root/deploy/xray/direct.json" "$stage/deploy/xray/direct.json"
 install -m 0755 "$root/deploy/xray/supervise.sh" "$stage/deploy/xray/supervise.sh"
 install -m 0755 "$updater_source/install.sh" "$stage/updater/install.sh"
 install -m 0755 "$updater_source/updater-linux-amd64" "$stage/updater/updater-linux-amd64"
-install -m 0644 "$updater_source/systemd/updater.service" "$stage/updater/systemd/updater.service"
+install -m 0644 "$updater_unit" "$stage/updater/systemd/updater.service"
 printf '%s\n' \
   "Moonli $version deployment bundle" \
   "Backend: https://github.com/$repository.git" \

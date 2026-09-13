@@ -28,7 +28,7 @@ API_BASE_URL = "https://moonli.shmoza.net"
 
 # Клиентский ключ Moonli, не Google API key.
 # Вставить только значение ключа, без Bearer и кавычек.
-API_KEY = "b0e28bd8cd82f78f576360b405b4ec879848ca49f9d12b7b213e2b7f552f4987".strip()
+API_KEY = "PASTE_MOONLI_ACCESS_KEY_HERE".strip()
 
 AUDIO_PATH = os.path.join(
     project.folder,
@@ -376,26 +376,65 @@ def _request_normalized_text(
     )
 
 
+def _wait_for_audio_ready(audio_path, timeout_seconds=8.0):
+    deadline = time.monotonic() + timeout_seconds
+    previous_signature = None
+    stable_checks = 0
+    last_size = 0
+
+    while time.monotonic() < deadline:
+        try:
+            stat = os.stat(audio_path)
+            last_size = stat.st_size
+            signature = (stat.st_size, stat.st_mtime_ns)
+
+            if stat.st_size >= 1000:
+                if signature == previous_signature:
+                    stable_checks += 1
+                else:
+                    stable_checks = 1
+
+                if stable_checks >= 3:
+                    try:
+                        with open(audio_path, "rb") as file:
+                            file.read(1)
+                    except OSError:
+                        stable_checks = 0
+                    else:
+                        return stat.st_size
+            else:
+                stable_checks = 0
+
+            previous_signature = signature
+
+        except OSError:
+            previous_signature = None
+            stable_checks = 0
+
+        time.sleep(0.15)
+
+    raise RuntimeError(
+        "Audio file did not become ready within "
+        "{} seconds. Last size: {} bytes.".format(
+            timeout_seconds,
+            last_size,
+        )
+    )
+
+
 def transcription_thread(
     audio_path,
     answer_node_path,
     operation_id,
 ):
     try:
-        file_size = os.path.getsize(audio_path)
+        file_size = _wait_for_audio_ready(audio_path)
 
         print(
             "\n[System] File ready. Size: {} bytes".format(
                 file_size
             )
         )
-
-        if file_size < 1000:
-            print(
-                "[Error] The file is too small. "
-                "Hold the button longer."
-            )
-            return
 
         device_id = _get_or_create_device_id()
 
@@ -445,38 +484,30 @@ def onOnToOff(channel, sampleIndex, val, prev):
         return
 
     op("../index").par.value0 += 1
+    target_op = op("../answer")
 
-    # Даём записи время завершить сохранение voice.wav.
-    time.sleep(0.2)
-
-    if os.path.exists(AUDIO_PATH):
-        target_op = op("../answer")
-
-        if target_op:
-            answer_path = target_op.path
-        else:
-            answer_path = ""
-
-        if not answer_path:
-            print(
-                "[Warning] A Text DAT named 'answer' "
-                "was not found beside this script."
-            )
-
-        operation_id = str(uuid.uuid4())
-
-        threading.Thread(
-            target=transcription_thread,
-            args=(
-                AUDIO_PATH,
-                answer_path,
-                operation_id,
-            ),
-            daemon=True,
-        ).start()
-
+    if target_op:
+        answer_path = target_op.path
     else:
-        print("File not found: " + AUDIO_PATH)
+        answer_path = ""
+
+    if not answer_path:
+        print(
+            "[Warning] A Text DAT named 'answer' "
+            "was not found beside this script."
+        )
+
+    operation_id = str(uuid.uuid4())
+
+    threading.Thread(
+        target=transcription_thread,
+        args=(
+            AUDIO_PATH,
+            answer_path,
+            operation_id,
+        ),
+        daemon=True,
+    ).start()
 
     return
 

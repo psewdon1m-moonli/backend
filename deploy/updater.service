@@ -1,0 +1,33 @@
+[Unit]
+Description=Local VPS updater
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/updater serve
+Restart=on-failure
+RestartSec=3
+User=root
+Group=updater
+UMask=0007
+Environment=UPDATER_SOCKET_PATH=/run/exocortex/updater.sock
+Environment=UPDATER_STATE_DIR=/var/lib/updater
+Environment=UPDATER_HEADS_FILE=/etc/exocortex/updater-heads.json
+Environment=UPDATER_MAX_RETAINED_JOBS=20
+Environment=UPDATER_RETENTION_DAYS=30
+Environment=UPDATER_COMMAND_TIMEOUT_SEC=300
+Environment=HOME=/var/lib/updater
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=200
+RuntimeDirectory=exocortex
+RuntimeDirectoryPreserve=yes
+StateDirectory=updater
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/exocortex /var/lib/updater /etc/exocortex /opt/moonli
+
+[Install]
+WantedBy=multi-user.target

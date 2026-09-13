@@ -60,6 +60,16 @@ def test_touchdesigner_transcription_replacement_preserves_runtime_contract() ->
     assert '"Say what you want to draw."' in source
     assert "if channel is not None and channel.index > 0:" in source
     assert 'op("../index").par.value0 += 1' in source
+    assert "def _wait_for_audio_ready(audio_path, timeout_seconds=8.0):" in source
+    assert "signature = (stat.st_size, stat.st_mtime_ns)" in source
+    assert "if stable_checks >= 3:" in source
+    assert "time.sleep(0.15)" in source
+    assert "file_size = _wait_for_audio_ready(audio_path)" in source
+    assert "time.sleep(0.2)" not in source
+    assert "if os.path.exists(AUDIO_PATH):" not in source
+    assert source.index("operation_id = str(uuid.uuid4())") < source.index(
+        "threading.Thread("
+    )
 
 
 def test_touchdesigner_pipeline_3_scripts_share_identity_and_configure_credentials() -> None:
@@ -82,7 +92,6 @@ def test_touchdesigner_pipeline_3_scripts_share_identity_and_configure_credentia
     assert transcription_key is not None
     assert generation_key is not None
     assert transcription_key.group(1) == generation_key.group(1)
-    assert len(transcription_key.group(1)) >= 32
-    assert not transcription_key.group(1).startswith("PASTE_")
+    assert transcription_key.group(1) == "PASTE_MOONLI_ACCESS_KEY_HERE"
     assert 'API_KEY.startswith("PASTE_")' in transcription
     assert 'API_KEY.startswith("PASTE_")' in generation

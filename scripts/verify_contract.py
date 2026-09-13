@@ -18,6 +18,7 @@ def main() -> int:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     xray_dockerfile = (ROOT / "deploy/xray/Dockerfile").read_text(encoding="utf-8")
+    installer = (ROOT / "deploy/install.sh").read_text(encoding="utf-8")
     nginx = (ROOT / "deploy/nginx/default.conf.template").read_text(encoding="utf-8")
     html = (ROOT / "app/web/index.html").read_text(encoding="utf-8")
     javascript = (ROOT / "app/web/app.js").read_text(encoding="utf-8")
@@ -30,6 +31,8 @@ def main() -> int:
     ).read_text(encoding="utf-8")
     ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     release_workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    updater_unit = (ROOT / "deploy/updater.service").read_text(encoding="utf-8")
+    release_builder = (ROOT / "scripts/build-release.sh").read_text(encoding="utf-8")
     development_lock = (ROOT / "requirements-dev.lock").read_text(encoding="utf-8")
     exposure = json.loads((ROOT / "docs/exposure-registry.json").read_text(encoding="utf-8"))
 
@@ -42,8 +45,30 @@ def main() -> int:
     )
     require(
         "sh scripts/pre-push.sh" in release_workflow
-        and "bash scripts/build-release.sh" in release_workflow,
+        and "bash scripts/build-release.sh" in release_workflow
+        and 'go-version: "1.24.x"' in release_workflow,
         "release workflow must invoke shell scripts through explicit interpreters",
+        findings,
+    )
+    expected_updater_paths = (
+        "ReadWritePaths=/run/exocortex /var/lib/updater /etc/exocortex /opt/moonli"
+    )
+    require(
+        expected_updater_paths in updater_unit
+        and "/opt/exocortex" not in updater_unit
+        and 'updater_unit="$root/deploy/updater.service"' in release_builder
+        and "expected_read_write_paths=" in release_builder
+        and "still targets the Exocortex install root" in release_builder
+        and expected_updater_paths in ci_workflow
+        and "deploy/updater.service" in ci_workflow,
+        "Moonli updater unit can regress to the /opt/exocortex sandbox path",
+        findings,
+    )
+    require(
+        "UPDATER_CONTROL_TOKEN=$updater_control" in installer
+        and "sync_updater_control_token" in installer
+        and "install_service() {\n  sync_updater_control_token\n  validate" in installer,
+        "Moonli install does not reconcile the updater control-token alias",
         findings,
     )
     require(
@@ -102,6 +127,10 @@ def main() -> int:
         "if channel is not None and channel.index > 0:" in touchdesigner_transcription
         and 'op("../index").par.value0 += 1' in touchdesigner_transcription
         and 'f"t{int(parent(2).digits)}"' in touchdesigner_transcription
+        and "def _wait_for_audio_ready" in touchdesigner_transcription
+        and "file_size = _wait_for_audio_ready(audio_path)" in touchdesigner_transcription
+        and "time.sleep(0.2)" not in touchdesigner_transcription
+        and "if os.path.exists(AUDIO_PATH):" not in touchdesigner_transcription
         and "MONLI_PROJECT_DIRECTORY" not in touchdesigner_transcription
         and "def _find_monli_project_directory" not in touchdesigner_transcription,
         "TouchDesigner pipeline-3 transcription changed its channel/index contract",

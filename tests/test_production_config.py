@@ -195,13 +195,16 @@ def test_pipeline_3_integration_kit_contains_two_requests_and_two_scripts(tmp_pa
     assert 'target_op = op("answer")' in payload["scripts"][1]["content"]
     assert 'f"t{int(parent(2).digits)}"' in payload["scripts"][0]["content"]
     assert "MONLI_PROJECT_DIRECTORY" not in payload["scripts"][0]["content"]
+    assert "def _wait_for_audio_ready" in payload["scripts"][0]["content"]
+    assert "time.sleep(0.2)" not in payload["scripts"][0]["content"]
+    assert "if os.path.exists(AUDIO_PATH):" not in payload["scripts"][0]["content"]
     key_pattern = re.compile(r'^API_KEY = "([^"]+)"\.strip\(\)$', re.MULTILINE)
     transcription_key = key_pattern.search(payload["scripts"][0]["content"])
     generation_key = key_pattern.search(payload["scripts"][1]["content"])
     assert transcription_key is not None
     assert generation_key is not None
     assert transcription_key.group(1) == generation_key.group(1)
-    assert not transcription_key.group(1).startswith("PASTE_")
+    assert transcription_key.group(1) == "PASTE_MOONLI_ACCESS_KEY_HERE"
     assert 'op("../index").par.value0 += 1' in payload["scripts"][0]["content"]
     generation_script = payload["scripts"][1]["content"]
     assert 'op("index").par.value0 += 1' in generation_script

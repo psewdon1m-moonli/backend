@@ -46,6 +46,7 @@ MOONLI_GOOGLE_TRANSLATION_MODEL=gemini-2.5-flash
 
 # GENERATED SECRETS — machine managed
 MOONLI_UPDATER_CONTROL_TOKEN=$updater_control
+UPDATER_CONTROL_TOKEN=$updater_control
 MOONLI_UPDATER_CATALOG_TOKEN=$updater_catalog
 KERNEL_URL=http://127.0.0.1:18000
 KERNEL_SERVICE_TOKEN=$updater_catalog
@@ -96,6 +97,25 @@ value() {
   sed -n "s/^$1=//p" "$env_file" | tail -n 1
 }
 
+sync_updater_control_token() {
+  [ -f "$env_file" ] || fail "$env_file is missing; run prepare first"
+  control_token="$(value MOONLI_UPDATER_CONTROL_TOKEN)"
+  [ -n "$control_token" ] || fail "MOONLI_UPDATER_CONTROL_TOKEN is missing"
+  temporary="$env_file.updater-token.tmp"
+  umask 077
+  if grep -q '^UPDATER_CONTROL_TOKEN=' "$env_file"; then
+    sed "s/^UPDATER_CONTROL_TOKEN=.*/UPDATER_CONTROL_TOKEN=$control_token/" \
+      "$env_file" > "$temporary"
+  else
+    {
+      cat "$env_file"
+      printf '\nUPDATER_CONTROL_TOKEN=%s\n' "$control_token"
+    } > "$temporary"
+  fi
+  chmod 0600 "$temporary"
+  mv "$temporary" "$env_file"
+}
+
 validate() {
   [ -f "$env_file" ] || fail "$env_file is missing; run prepare first"
   [ "$(stat -c '%a' "$env_file")" = "600" ] || fail "$env_file must have mode 0600"
@@ -132,6 +152,7 @@ finalize_seed() {
 }
 
 install_service() {
+  sync_updater_control_token
   validate
   cd "$install_root"
   docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml config >/dev/null

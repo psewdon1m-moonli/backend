@@ -39,7 +39,7 @@ API_BASE_URL = "https://moonli.shmoza.net"
 
 # This is the Moonli client access key, not the Google API key.
 # Paste only the key value: without "Bearer", quotes from .env, or the variable name.
-API_KEY = "b0e28bd8cd82f78f576360b405b4ec879848ca49f9d12b7b213e2b7f552f4987".strip()
+API_KEY = "PASTE_MOONLI_ACCESS_KEY_HERE".strip()
 
 IMAGE_SAVE_DIR = os.path.join(
     project.folder,

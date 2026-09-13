@@ -33,6 +33,11 @@ jobs:
           python scripts/security_scan.py
           python scripts/verify_contract.py
           docker compose config --quiet
+      - name: Verify Moonli updater systemd sandbox
+        run: |
+          grep -Fx 'ReadWritePaths=/run/exocortex /var/lib/updater /etc/exocortex /opt/moonli' \
+            deploy/updater.service
+          if grep -F '/opt/exocortex' deploy/updater.service; then exit 1; fi
       - name: Build application image
         run: docker build --pull --tag moonli-ci:${{ github.sha }} .
       - name: Inspect final image for forbidden inputs

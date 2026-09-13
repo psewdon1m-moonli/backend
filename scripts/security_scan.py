@@ -27,6 +27,9 @@ SECRET_PATTERNS = {
     "AWS access key": re.compile(rb"AKIA[0-9A-Z]{16}"),
     "private key": re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     "Slack token": re.compile(rb"xox[baprs]-[0-9A-Za-z-]{20,}"),
+    "inline Moonli client key": re.compile(
+        rb'(?m)^API_KEY\s*=\s*"[0-9a-fA-F]{64}"(?:\.strip\(\))?\s*$'
+    ),
 }
 
 

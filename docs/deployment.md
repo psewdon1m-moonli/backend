@@ -41,6 +41,13 @@ pinned updater, starts the stack and gates success on loopback readiness and ver
 public HTTPS. After the first successful start the plaintext operator seed is blanked
 in `.env`; the data volume retains only its scrypt verifier.
 
+The release bundle carries a Moonli-specific updater systemd unit whose filesystem
+sandbox grants write access to `/opt/moonli`. Release construction rejects the generic
+`/opt/exocortex` install root so a clean Moonli host does not require a post-install
+unit-file repair. The installer also materializes the updater's generic
+`UPDATER_CONTROL_TOKEN` alias from the canonical Moonli token, including when repairing
+an environment prepared by an older bootstrap.
+
 ## Exposure and authentication
 
 Nginx is the sole public listener. `api` also binds `127.0.0.1:18000` for the local
