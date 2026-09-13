@@ -40,6 +40,16 @@ def test_installer_materializes_the_updater_control_token_alias() -> None:
     assert "install_service() {\n  sync_updater_control_token\n  validate" in installer
 
 
+def test_production_install_never_builds_the_digest_pinned_api() -> None:
+    production_compose = (ROOT / "compose.production.yml").read_text(encoding="utf-8")
+    installer = (ROOT / "deploy/install.sh").read_text(encoding="utf-8")
+
+    assert "build: !reset null" in production_compose
+    assert "build vless-proxy gateway" in installer
+    assert "up -d --no-build --wait" in installer
+    assert "up -d --build --wait" not in installer
+
+
 def test_bootstrap_ignores_the_release_archive_root_member(tmp_path: Path) -> None:
     stage = tmp_path / "stage"
     stage.mkdir()

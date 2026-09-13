@@ -16,6 +16,7 @@ def require(condition: bool, message: str, findings: list[str]) -> None:
 def main() -> int:
     findings: list[str] = []
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    production_compose = (ROOT / "compose.production.yml").read_text(encoding="utf-8")
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     xray_dockerfile = (ROOT / "deploy/xray/Dockerfile").read_text(encoding="utf-8")
     installer = (ROOT / "deploy/install.sh").read_text(encoding="utf-8")
@@ -69,6 +70,14 @@ def main() -> int:
         and "sync_updater_control_token" in installer
         and "install_service() {\n  sync_updater_control_token\n  validate" in installer,
         "Moonli install does not reconcile the updater control-token alias",
+        findings,
+    )
+    require(
+        "build: !reset null" in production_compose
+        and "build vless-proxy gateway" in installer
+        and "up -d --no-build --wait" in installer
+        and "up -d --build --wait" not in installer,
+        "production install can try to build the digest-pinned API image",
         findings,
     )
     require(

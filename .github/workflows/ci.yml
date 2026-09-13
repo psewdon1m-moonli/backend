@@ -33,6 +33,10 @@ jobs:
           python scripts/security_scan.py
           python scripts/verify_contract.py
           docker compose config --quiet
+          MOONLI_IMAGE=ghcr.io/psewdon1m-moonli/backend@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            docker compose -f docker-compose.yml -f compose.production.yml config --format json \
+            > /tmp/moonli-production-compose.json
+          python -c 'import json; data=json.load(open("/tmp/moonli-production-compose.json")); assert "build" not in data["services"]["api"]'
       - name: Verify Moonli updater systemd sandbox
         run: |
           grep -Fx 'ReadWritePaths=/run/exocortex /var/lib/updater /etc/exocortex /opt/moonli' \

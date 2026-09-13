@@ -162,7 +162,10 @@ install_service() {
   else
     fail "verified updater bundle is missing"
   fi
-  docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml up -d --build --wait
+  docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml \
+    build vless-proxy gateway
+  docker compose --env-file "$env_file" -f docker-compose.yml -f compose.production.yml \
+    up -d --no-build --wait
   domain="$(value MOONLI_DOMAIN)"
   attempts=0
   until curl --fail --silent --show-error --max-time 5 --header "Host: $domain" \

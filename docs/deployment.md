@@ -121,7 +121,8 @@ the reviewed deployment bundle in `/opt/moonli`, apply the maintenance update wi
 ```bash
 cd /opt/moonli
 sudo docker compose --env-file .env -f docker-compose.yml -f compose.production.yml config --quiet
-sudo docker compose --env-file .env -f docker-compose.yml -f compose.production.yml up -d --build --wait vless-proxy api gateway
+sudo docker compose --env-file .env -f docker-compose.yml -f compose.production.yml build vless-proxy gateway
+sudo docker compose --env-file .env -f docker-compose.yml -f compose.production.yml up -d --no-build --wait
 ```
 
 Do not put a VLESS URI in `.env`, source control, support logs, or a logical backup.
