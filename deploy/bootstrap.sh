@@ -47,9 +47,9 @@ tar -tzf "$work/moonli-compose.tar.gz" > "$work/members.txt"
 [ "$(wc -l < "$work/members.txt")" -le 32 ] || { echo "Bundle contains too many entries." >&2; exit 1; }
 tar -tzf "$work/moonli-compose.tar.gz" | grep -Eq '(^/|(^|/)\.\.(/|$))' && { echo "Unsafe bundle path." >&2; exit 1; }
 tar -tvzf "$work/moonli-compose.tar.gz" | grep -Eq '^[lh]' && { echo "Bundle links are forbidden." >&2; exit 1; }
-duplicates="$(sed 's#^\./##; /\/$/d' "$work/members.txt" | sort | uniq -d)"
+duplicates="$(sed 's#^\./##; /^$/d; /\/$/d' "$work/members.txt" | sort | uniq -d)"
 [ -z "$duplicates" ] || { echo "Duplicate bundle paths are forbidden." >&2; exit 1; }
-sed 's#^\./##; /\/$/d' "$work/members.txt" | while IFS= read -r member; do
+sed 's#^\./##; /^$/d; /\/$/d' "$work/members.txt" | while IFS= read -r member; do
   case "$member" in
     docker-compose.yml|compose.production.yml|RELEASE-CONTENTS.txt|deploy/bootstrap.sh|deploy/install.sh|deploy/nginx/Dockerfile|deploy/nginx/default.conf.template|deploy/nginx/10-moonli-certificate.sh|deploy/xray/Dockerfile|deploy/xray/direct.json|deploy/xray/supervise.sh|updater/install.sh|updater/updater-linux-amd64|updater/systemd/updater.service) ;;
     *) echo "Unexpected bundle member: $member" >&2; exit 1 ;;

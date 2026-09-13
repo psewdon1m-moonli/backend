@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,3 +38,34 @@ def test_installer_materializes_the_updater_control_token_alias() -> None:
     assert "UPDATER_CONTROL_TOKEN=$updater_control" in installer
     assert "sync_updater_control_token()" in installer
     assert "install_service() {\n  sync_updater_control_token\n  validate" in installer
+
+
+def test_bootstrap_ignores_the_release_archive_root_member(tmp_path: Path) -> None:
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    (stage / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    (stage / "deploy").mkdir()
+    archive = tmp_path / "release.tar.gz"
+
+    subprocess.run(
+        ["tar", "-czf", str(archive), "-C", str(stage), "."],
+        check=True,
+    )
+    members = subprocess.run(
+        ["tar", "-tzf", str(archive)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    normalized = subprocess.run(
+        ["sed", "s#^\\./##; /^$/d; /\\/$/d"],
+        input=members,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+
+    assert "" not in normalized
+    assert normalized == ["docker-compose.yml"]
+    bootstrap = (ROOT / "deploy/bootstrap.sh").read_text(encoding="utf-8")
+    assert bootstrap.count("s#^\\./##; /^$/d; /\\/$/d") == 2
